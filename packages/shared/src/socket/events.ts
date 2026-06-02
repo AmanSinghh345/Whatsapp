@@ -1,0 +1,25 @@
+export const SocketEvents = {
+  messageSend: "message:send",
+  messageNew: "message:new",
+  messageReceiptUpsert: "message:receipt:upsert",
+  messageReceiptUpdated: "message:receipt:updated",
+
+  typingUpdate: "typing:update",
+  typingState: "typing:state",
+
+  presenceQuery: "presence:query",
+  presenceState: "presence:state",
+  presenceOnline: "presence:online",
+  presenceOffline: "presence:offline",
+
+  unreadChanged: "notifications:unreadChanged",
+
+  callCreated: "call:created",
+  callJoin: "call:join",
+  callLeave: "call:leave",
+  callSignal: "call:signal",
+  callState: "call:state"
+} as const;
+
+export type SocketEventName = (typeof SocketEvents)[keyof typeof SocketEvents];
+
