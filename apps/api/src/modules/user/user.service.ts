@@ -31,14 +31,19 @@ export class UserService {
       }
     });
 
-    return {
+    const dto: UserDto = {
       id: user.id,
       firebaseUid: user.firebaseUid,
       displayName: user.displayName,
-      avatarUrl: user.avatarUrl ?? undefined,
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString()
     };
+
+    if (user.avatarUrl) {
+      dto.avatarUrl = user.avatarUrl;
+    }
+
+    return dto;
   }
 
   private pickDisplayName(authUser: AuthenticatedRequestUser): string {

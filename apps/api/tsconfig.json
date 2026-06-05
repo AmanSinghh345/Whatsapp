@@ -3,6 +3,12 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@chat/shared": [
+        "../../packages/shared/src/index.ts"
+      ]
+    },
     "outDir": "dist",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,

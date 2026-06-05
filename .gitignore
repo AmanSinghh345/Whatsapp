@@ -16,3 +16,7 @@ yarn-error.log*
 .idea
 .vscode
 
+project_context.md
+structure.txt
+
+*.tsbuildinfo

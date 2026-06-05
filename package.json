@@ -13,6 +13,8 @@
     "typecheck": "npm -ws run typecheck",
     "lint": "npm -ws run lint",
     "format": "npm -ws run format"
+  },
+  "dependencies": {
+    "@nestjs/config": "^4.0.4"
   }
 }
-
