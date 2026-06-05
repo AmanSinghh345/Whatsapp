@@ -40,6 +40,9 @@ export type ClientToServerEvents = {
   "message:send": (payload: SendMessageRequestDto) => void;
   "message:receipt:upsert": (payload: UpsertReceiptDto) => void;
 
+  "chat:join": (payload: { chatId: Id }) => void;
+  "chat:leave": (payload: { chatId: Id }) => void;
+
   "typing:update": (payload: TypingUpdatePayload) => void;
   "presence:query": (payload: PresenceQueryPayload) => void;
 
@@ -65,4 +68,3 @@ export type ServerToClientEvents = {
   "call:state": (payload: { call: CallSessionDto }) => void;
   "call:signal": (payload: WebRtcSignalDto & { fromUserId: Id }) => void;
 };
-

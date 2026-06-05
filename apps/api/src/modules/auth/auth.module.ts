@@ -8,7 +8,6 @@ import { UserModule } from "../user/user.module.js";
   imports: [UserModule],
   controllers: [AuthController],
   providers: [FirebaseAdminService, FirebaseAuthGuard],
-  exports: [FirebaseAdminService, FirebaseAuthGuard]
+  exports: [FirebaseAdminService, FirebaseAuthGuard, UserModule]
 })
 export class AuthModule {}
-

@@ -1,10 +1,15 @@
 "use client";
 
-import { GoogleAuthProvider, signInWithPopup, type FirebaseError } from "firebase/auth";
+import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { getFirebaseAuth } from "./firebase-client";
 
+type FirebaseAuthErrorLike = {
+  code?: string;
+  message?: string;
+};
+
 function getFirebaseAuthErrorMessage(error: unknown): string {
-  const firebaseError = error as Partial<FirebaseError>;
+  const firebaseError = error as FirebaseAuthErrorLike;
   if (firebaseError.code && firebaseError.message) {
     return `${firebaseError.code}: ${firebaseError.message}`;
   }
@@ -33,4 +38,3 @@ export async function startPhoneOtpScaffold(phoneE164: string): Promise<void> {
   // In the next auth section we can add RecaptchaVerifier and signInWithPhoneNumber wiring.
   throw new Error("Phone OTP scaffold ready. Verify flow wiring is the next step.");
 }
-

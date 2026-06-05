@@ -42,6 +42,12 @@ export class UserService {
     if (user.avatarUrl) {
       dto.avatarUrl = user.avatarUrl;
     }
+    if (user.email) {
+      dto.email = user.email;
+    }
+    if (user.phoneE164) {
+      dto.phoneE164 = user.phoneE164;
+    }
 
     return dto;
   }
@@ -56,4 +62,3 @@ export class UserService {
     return "New User";
   }
 }
-

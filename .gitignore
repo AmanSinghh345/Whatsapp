@@ -20,3 +20,8 @@ project_context.md
 structure.txt
 
 *.tsbuildinfo
+
+# Ignore compiled output in the shared package
+packages/shared/**/*.js
+packages/shared/**/*.js.map
+packages/shared/**/*.d.ts

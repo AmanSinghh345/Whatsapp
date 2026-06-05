@@ -5,17 +5,14 @@
     "moduleResolution": "NodeNext",
     "baseUrl": ".",
     "paths": {
-      "@chat/shared": [
-        "../../packages/shared/src/index.ts"
-      ]
+      "@chat/shared": ["../../packages/shared/src/index.ts"]
     },
     "outDir": "dist",
+    "rootDir": "../..",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "strictPropertyInitialization": false
+    "strictPropertyInitialization": false,
+    "ignoreDeprecations": "5.0"
   },
-  "include": [
-    "src/**/*.ts"
-  ]
+  "include": ["src/**/*.ts"]
 }
-
