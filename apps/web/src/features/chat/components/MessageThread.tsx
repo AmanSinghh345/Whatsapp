@@ -15,46 +15,71 @@ interface Props {
 }
 
 export function MessageThread({ chatId, currentUserId }: Props) {
-  const { messages, loading, sending, error, send, appendMessage, bottomRef } =
-    useMessages(chatId);
+  const {
+    messages,
+    loading,
+    sending,
+    error,
+    send,
+    appendMessage,
+    updateReceiptStatus,
+    bottomRef,
+  } = useMessages(chatId, currentUserId);
 
   const handleIncoming = useCallback(
     (msg: typeof messages[number]) => appendMessage(msg),
     [appendMessage]
   );
 
-  useRealtimeMessages({ chatId, onMessage: handleIncoming });
+  useRealtimeMessages({
+    chatId,
+    currentUserId,
+    onMessage: handleIncoming,
+    onReceiptUpdate: updateReceiptStatus,
+  });
 
   const { onKeyStroke } = useTyping(chatId, currentUserId);
   const { isTyping } = useTypingIndicator(chatId, currentUserId);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex flex-col flex-1 overflow-y-auto px-6 py-4 gap-1">
-        {loading && (
-          <p className="text-center text-sm text-white/40 mt-10">
+      <div className="relative flex flex-1 flex-col overflow-y-auto bg-zinc-950">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-55"
+          style={{
+            backgroundImage:
+              "url('/images/chat-backgrounds/gradient-landscape.avif')",
+          }}
+        />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_34%),linear-gradient(135deg,rgba(9,9,11,0.58),rgba(9,9,11,0.34)_45%,rgba(2,6,23,0.62))]" />
+        <div className="pointer-events-none absolute inset-0 backdrop-blur-[1px]" />
+
+        <div className="relative z-10 flex flex-1 flex-col gap-1 px-6 py-4">
+          {loading && (
+            <p className="mt-10 text-center text-sm text-white/40">
             Loading messages…
           </p>
-        )}
+          )}
 
-        {!loading && messages.length === 0 && (
-          <p className="text-center text-sm text-white/40 mt-10">
+          {!loading && messages.length === 0 && (
+            <p className="mt-10 text-center text-sm text-white/40">
             No messages yet. Say hello! 👋
           </p>
-        )}
+          )}
 
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            isOwn={msg.senderId === currentUserId}
-          />
-        ))}
+          {messages.map((msg) => (
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              isOwn={msg.senderId === currentUserId}
+            />
+          ))}
 
-        {/* Typing indicator bubble */}
-        {isTyping && <TypingBubble />}
+          {isTyping && <TypingBubble />}
 
-        <div ref={bottomRef} />
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {error && (

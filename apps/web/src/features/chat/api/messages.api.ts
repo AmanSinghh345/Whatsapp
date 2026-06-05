@@ -1,6 +1,7 @@
 // apps/web/src/features/chat/api/messages.api.ts
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000/api";
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const { getAuth } = await import("firebase/auth");
@@ -20,6 +21,7 @@ export interface MessageDto {
   clientMessageId: string;
   contentType: "text" | "attachment";
   text: string | null;
+  receiptStatus?: "sent" | "delivered" | "seen";
   createdAt: string;
 }
 
@@ -73,4 +75,21 @@ export async function deleteMessage(messageId: string): Promise<void> {
     headers,
   });
   if (!res.ok) throw new Error(`Failed to delete message: ${res.status}`);
+}
+
+export async function upsertMessageReceipt(
+  chatId: string,
+  messageId: string,
+  status: "delivered" | "seen"
+): Promise<void> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/messages/receipt/upsert`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ chatId, messageId, status }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to update message receipt: ${res.status}`);
+  }
 }

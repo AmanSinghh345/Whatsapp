@@ -51,7 +51,7 @@ export class MessageService {
 
     const existingMessage = await this.prisma.message.findFirst({
       where: { chatId, senderId: userId, clientMessageId },
-      include: { attachments: true },
+      include: { attachments: true, receipts: true },
     });
 
     if (existingMessage) {
@@ -93,7 +93,11 @@ export class MessageService {
       `Message sent: ${message.id} to chat ${chatId} by user ${userId}`,
     );
 
-    const dto = this.toMessageDto(message);
+    const messageWithReceipts = await this.prisma.message.findUnique({
+      where: { id: message.id },
+      include: { attachments: true, receipts: true },
+    });
+    const dto = this.toMessageDto(messageWithReceipts ?? message);
 
     try {
       this.socketGateway.broadcastMessageToChat(
@@ -119,7 +123,7 @@ export class MessageService {
 
     const messages = await this.prisma.message.findMany({
       where: { chatId },
-      include: { attachments: true },
+      include: { attachments: true, receipts: true },
       orderBy: { createdAt: "desc" },
       take: limit + 1,
       ...(cursor && { skip: 1, cursor: { id: cursor } }),
@@ -140,7 +144,7 @@ export class MessageService {
   async getMessage(messageId: string, userId: string): Promise<MessageDto> {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
-      include: { attachments: true },
+      include: { attachments: true, receipts: true },
     });
 
     if (!message) {
@@ -202,6 +206,17 @@ export class MessageService {
     this.logger.debug(
       `Message receipt updated: ${messageId} for user ${userId} status=${status}`,
     );
+
+    this.socketGateway.broadcastMessageToChat(
+      chatId,
+      SocketEvents.messageReceiptUpdated,
+      {
+        messageId,
+        recipientId: userId,
+        status,
+        updatedAt: new Date().toISOString(),
+      },
+    );
   }
 
   async deleteMessage(messageId: string, userId: string): Promise<void> {
@@ -248,7 +263,27 @@ export class MessageService {
         width: att.width,
         height: att.height,
       })),
+      receiptStatus: this.getReceiptStatus(message.receipts ?? []),
+      receipts: message.receipts?.map((receipt: any) => ({
+        recipientId: receipt.recipientId,
+        ...(receipt.deliveredAt
+          ? { deliveredAt: receipt.deliveredAt.toISOString() }
+          : {}),
+        ...(receipt.seenAt ? { seenAt: receipt.seenAt.toISOString() } : {}),
+      })),
       createdAt: message.createdAt.toISOString(),
     };
+  }
+
+  private getReceiptStatus(receipts: any[]): "sent" | "delivered" | "seen" {
+    if (receipts.some((receipt) => Boolean(receipt.seenAt))) {
+      return "seen";
+    }
+
+    if (receipts.length > 0 && receipts.every((receipt) => Boolean(receipt.deliveredAt))) {
+      return "delivered";
+    }
+
+    return "sent";
   }
 }

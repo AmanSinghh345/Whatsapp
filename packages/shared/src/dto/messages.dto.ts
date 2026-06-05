@@ -20,7 +20,15 @@ export type MessageDto = {
   contentType: MessageContentType;
   text?: string;
   attachments?: MessageAttachmentDto[];
+  receiptStatus?: "sent" | "delivered" | "seen";
+  receipts?: MessageReceiptDto[];
   createdAt: ISODateString;
+};
+
+export type MessageReceiptDto = {
+  recipientId: Id;
+  deliveredAt?: ISODateString;
+  seenAt?: ISODateString;
 };
 
 export type SendMessageRequestDto = {
@@ -39,4 +47,3 @@ export type UpsertReceiptDto = {
   status: MessageReceiptStatus;
   clientReceivedAt?: ISODateString;
 };
-

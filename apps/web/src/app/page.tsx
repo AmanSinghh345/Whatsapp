@@ -138,9 +138,9 @@ export default function HomePage() {
 
   return (
     <ProtectedRoute>
-      <main className="flex h-screen bg-zinc-950 text-zinc-50">
-        <aside className="flex w-80 shrink-0 flex-col border-r border-white/10">
-          <div className="border-b border-white/10 p-4">
+      <main className="flex h-screen bg-[#071018] text-zinc-50">
+        <aside className="flex w-80 shrink-0 flex-col border-r border-cyan-200/10 bg-[#0b1720]/95 shadow-2xl shadow-black/30">
+          <div className="border-b border-cyan-200/10 bg-gradient-to-br from-cyan-950/35 via-slate-950/20 to-emerald-950/25 p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold">
@@ -156,7 +156,7 @@ export default function HomePage() {
                 type="button"
                 onClick={() => void loadChats()}
                 disabled={isLoading}
-                className="rounded-md border border-white/15 px-2 py-1 text-xs font-medium text-white/80 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md border border-cyan-100/15 bg-white/[0.03] px-2 py-1 text-xs font-medium text-white/80 hover:bg-cyan-100/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Refresh
               </button>
@@ -164,9 +164,9 @@ export default function HomePage() {
 
             <Link
               href="/profile"
-              className="mt-3 flex items-center gap-3 rounded-md bg-white/[0.03] p-2 hover:bg-white/[0.06]"
+              className="mt-3 flex items-center gap-3 rounded-md bg-cyan-100/[0.05] p-2 hover:bg-cyan-100/[0.09]"
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-700 text-sm font-semibold">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-emerald-500 to-cyan-700 text-sm font-semibold">
                 {user?.avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -191,7 +191,7 @@ export default function HomePage() {
 
           <form
             onSubmit={handleCreateDirectChat}
-            className="border-b border-white/10 p-4"
+            className="border-b border-cyan-200/10 bg-[#09141d]/80 p-4"
           >
             <label
               htmlFor="other-user-id"
@@ -205,13 +205,13 @@ export default function HomePage() {
               value={phoneSearch}
               onChange={(event) => setPhoneSearch(event.target.value)}
               placeholder="+919876543210"
-              className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-emerald-500"
+              className="w-full rounded-md border border-cyan-100/15 bg-white/[0.04] px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-cyan-400"
             />
 
             <button
               type="submit"
               disabled={isCreating}
-              className="mt-3 w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-3 w-full rounded-md bg-gradient-to-r from-emerald-600 to-cyan-600 px-3 py-2 text-sm font-medium text-white hover:from-emerald-500 hover:to-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isCreating ? "Searching..." : "Find and create chat"}
             </button>
@@ -220,7 +220,7 @@ export default function HomePage() {
             </p>
           </form>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#071018]/70 p-2">
             {isLoading ? (
               <p className="px-2 py-3 text-sm text-white/55">Loading chats...</p>
             ) : chats.length === 0 ? (
@@ -243,14 +243,14 @@ export default function HomePage() {
                       key={chat.id}
                       type="button"
                       onClick={() => setSelectedChatId(chat.id)}
-                      className={`w-full rounded-md px-3 py-3 text-left hover:bg-white/5 ${
-                        isSelected ? "bg-white/10" : ""
+                      className={`w-full rounded-md px-3 py-3 text-left hover:bg-cyan-100/[0.07] ${
+                        isSelected ? "bg-cyan-100/[0.11]" : ""
                       }`}
                     >
                       <div className="flex items-center gap-3">
                         <div className="relative">
                           <Avatar user={otherUser} label={title} />
-                          <span className="absolute bottom-0 right-0 rounded-full bg-zinc-950 p-0.5">
+                          <span className="absolute bottom-0 right-0 rounded-full bg-[#071018] p-0.5">
                             <PresenceDot online={hasOnlineMember} />
                           </span>
                         </div>
@@ -276,8 +276,8 @@ export default function HomePage() {
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col">
-          <header className="border-b border-white/10 px-6 py-4">
+        <section className="flex min-w-0 flex-1 flex-col bg-[#071018]">
+          <header className="border-b border-cyan-200/10 bg-[#0b1720]/80 px-6 py-4 shadow-lg shadow-black/20 backdrop-blur-md">
             {selectedChat ? (
               <div className="flex items-center gap-3">
                 <Avatar

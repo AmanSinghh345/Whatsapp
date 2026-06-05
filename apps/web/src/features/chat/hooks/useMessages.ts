@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchMessages, sendMessage, MessageDto } from "../api/messages.api";
+import {
+  fetchMessages,
+  sendMessage,
+  upsertMessageReceipt,
+  MessageDto,
+} from "../api/messages.api";
 
-export function useMessages(chatId: string | null) {
+export function useMessages(chatId: string | null, currentUserId: string) {
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -19,7 +24,17 @@ export function useMessages(chatId: string | null) {
 
     fetchMessages(chatId)
       .then(({ messages }) => {
-        if (!cancelled) setMessages(messages);
+        if (cancelled) return;
+
+        setMessages(messages);
+        const incomingMessages = messages.filter(
+          (message) => message.senderId !== currentUserId,
+        );
+        void Promise.allSettled(
+          incomingMessages.map((message) =>
+            upsertMessageReceipt(chatId, message.id, "seen"),
+          ),
+        );
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -31,7 +46,7 @@ export function useMessages(chatId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [chatId]);
+  }, [chatId, currentUserId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -65,5 +80,33 @@ export function useMessages(chatId: string | null) {
     });
   }, []);
 
-  return { messages, loading, sending, error, send, appendMessage, bottomRef };
+  const updateReceiptStatus = useCallback(
+    (messageId: string, status: "delivered" | "seen") => {
+      setMessages((prev) =>
+        prev.map((message) => {
+          if (message.id !== messageId) {
+            return message;
+          }
+
+          if (message.receiptStatus === "seen") {
+            return message;
+          }
+
+          return { ...message, receiptStatus: status };
+        }),
+      );
+    },
+    [],
+  );
+
+  return {
+    messages,
+    loading,
+    sending,
+    error,
+    send,
+    appendMessage,
+    updateReceiptStatus,
+    bottomRef,
+  };
 }
