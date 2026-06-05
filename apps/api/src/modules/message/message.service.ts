@@ -4,14 +4,17 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ChatService } from "../chat/chat.service.js";
+import { SocketGateway } from "../realtime/socket.gateway.js";
+import { SocketEvents } from "@chat/shared";
 import type {
   SendMessageRequestDto,
   MessageDto,
   UpsertReceiptDto,
-  MessageReceiptStatus,
 } from "@chat/shared";
 
 @Injectable()
@@ -21,12 +24,10 @@ export class MessageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatService: ChatService,
+    @Inject(forwardRef(() => SocketGateway))
+    private readonly socketGateway: SocketGateway,
   ) {}
 
-  /**
-   * Send a message to a chat
-   * Idempotent via (chatId, senderId, clientMessageId) unique constraint
-   */
   async sendMessage(
     userId: string,
     request: SendMessageRequestDto,
@@ -34,10 +35,8 @@ export class MessageService {
     const { chatId, clientMessageId, contentType, text, attachmentIds } =
       request;
 
-    // Verify user is member of chat
     await this.chatService.getChat(chatId, userId);
 
-    // Validate content
     if (contentType === "text" && !text?.trim()) {
       throw new BadRequestException(
         "Text content is required for text messages",
@@ -50,13 +49,8 @@ export class MessageService {
       );
     }
 
-    // Check if message already exists (idempotency)
     const existingMessage = await this.prisma.message.findFirst({
-      where: {
-        chatId,
-        senderId: userId,
-        clientMessageId,
-      },
+      where: { chatId, senderId: userId, clientMessageId },
       include: { attachments: true },
     });
 
@@ -67,33 +61,22 @@ export class MessageService {
       return this.toMessageDto(existingMessage);
     }
 
-    const messageData = {
-      chatId,
-      senderId: userId,
-      clientMessageId,
-      contentType,
-      textContent: text ?? null,
-      ...(attachmentIds?.length
-        ? {
-            attachments: {
-              connect: attachmentIds.map((id) => ({ id })),
-            },
-          }
-        : {}),
-    };
-
-    // Create message
     const message = await this.prisma.message.create({
-      data: messageData,
+      data: {
+        chatId,
+        senderId: userId,
+        clientMessageId,
+        contentType,
+        textContent: text ?? null,
+        ...(attachmentIds?.length
+          ? { attachments: { connect: attachmentIds.map((id) => ({ id })) } }
+          : {}),
+      },
       include: { attachments: true },
     });
 
-    // Create receipts for all other chat members
     const chatMembers = await this.prisma.chatMember.findMany({
-      where: {
-        chatId,
-        userId: { not: userId },
-      },
+      where: { chatId, userId: { not: userId } },
     });
 
     if (chatMembers.length > 0) {
@@ -110,27 +93,35 @@ export class MessageService {
       `Message sent: ${message.id} to chat ${chatId} by user ${userId}`,
     );
 
-    return this.toMessageDto(message);
+    const dto = this.toMessageDto(message);
+
+    try {
+      this.socketGateway.broadcastMessageToChat(
+        chatId,
+        SocketEvents.messageNew,
+        dto,
+      );
+      this.logger.debug(`Broadcast message:new to chat:${chatId}`);
+    } catch (e) {
+      this.logger.warn(`Socket broadcast failed (non-fatal): ${e}`);
+    }
+
+    return dto;
   }
 
-  /**
-   * Get message history for a chat (cursor-based pagination)
-   */
   async getMessages(
     chatId: string,
     userId: string,
     cursor?: string,
     limit = 20,
   ): Promise<{ messages: MessageDto[]; nextCursor: string | null }> {
-    // Verify user is member of chat
     await this.chatService.getChat(chatId, userId);
 
-    // Fetch messages in reverse chronological order
     const messages = await this.prisma.message.findMany({
       where: { chatId },
       include: { attachments: true },
       orderBy: { createdAt: "desc" },
-      take: limit + 1, // Get one extra to determine if there's a next page
+      take: limit + 1,
       ...(cursor && { skip: 1, cursor: { id: cursor } }),
     });
 
@@ -141,16 +132,11 @@ export class MessageService {
       : null;
 
     return {
-      messages: paginatedMessages
-        .reverse()
-        .map((msg) => this.toMessageDto(msg)),
+      messages: paginatedMessages.reverse().map((msg) => this.toMessageDto(msg)),
       nextCursor,
     };
   }
 
-  /**
-   * Get single message
-   */
   async getMessage(messageId: string, userId: string): Promise<MessageDto> {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
@@ -161,30 +147,20 @@ export class MessageService {
       throw new NotFoundException(`Message ${messageId} not found`);
     }
 
-    // Verify user is member of the chat containing this message
     await this.chatService.getChat(message.chatId, userId);
-
     return this.toMessageDto(message);
   }
 
-  /**
-   * Get receipts for a message
-   */
   async getMessageReceipts(messageId: string, userId: string) {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
-      include: {
-        receipts: {
-          include: { recipient: true },
-        },
-      },
+      include: { receipts: { include: { recipient: true } } },
     });
 
     if (!message) {
       throw new NotFoundException(`Message ${messageId} not found`);
     }
 
-    // Verify user is sender or in the chat
     await this.chatService.getChat(message.chatId, userId);
 
     return message.receipts.map((receipt) => ({
@@ -195,16 +171,9 @@ export class MessageService {
     }));
   }
 
-  /**
-   * Update message receipt (mark as delivered or seen)
-   */
-  async upsertReceipt(
-    userId: string,
-    request: UpsertReceiptDto,
-  ): Promise<void> {
+  async upsertReceipt(userId: string, request: UpsertReceiptDto): Promise<void> {
     const { messageId, chatId, status } = request;
 
-    // Verify message exists and belongs to chat
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
     });
@@ -215,23 +184,18 @@ export class MessageService {
       );
     }
 
-    // Verify user is member of chat
     await this.chatService.getChat(chatId, userId);
 
-    // Update receipt
     const updateData: any = {};
     if (status === "delivered") {
       updateData.deliveredAt = new Date();
     } else if (status === "seen") {
       updateData.seenAt = new Date();
-      updateData.deliveredAt = new Date(); // Ensure delivered is set
+      updateData.deliveredAt = new Date();
     }
 
     await this.prisma.messageReceipt.updateMany({
-      where: {
-        messageId,
-        recipientId: userId,
-      },
+      where: { messageId, recipientId: userId },
       data: updateData,
     });
 
@@ -240,9 +204,6 @@ export class MessageService {
     );
   }
 
-  /**
-   * Delete message (only sender or admins can delete)
-   */
   async deleteMessage(messageId: string, userId: string): Promise<void> {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
@@ -252,16 +213,9 @@ export class MessageService {
       throw new NotFoundException(`Message ${messageId} not found`);
     }
 
-    // Check permissions
     if (message.senderId !== userId) {
-      // Check if user is admin of the chat
       const chatMember = await this.prisma.chatMember.findUnique({
-        where: {
-          chatId_userId: {
-            chatId: message.chatId,
-            userId,
-          },
-        },
+        where: { chatId_userId: { chatId: message.chatId, userId } },
       });
 
       if (!chatMember || chatMember.role !== "admin") {
@@ -269,25 +223,14 @@ export class MessageService {
       }
     }
 
-    await this.prisma.message.delete({
-      where: { id: messageId },
-    });
-
+    await this.prisma.message.delete({ where: { id: messageId } });
     this.logger.log(`Message deleted: ${messageId}`);
   }
 
-  /**
-   * Get message count for a chat
-   */
   async getMessageCount(chatId: string): Promise<number> {
-    return this.prisma.message.count({
-      where: { chatId },
-    });
+    return this.prisma.message.count({ where: { chatId } });
   }
 
-  /**
-   * Convert Prisma Message to DTO
-   */
   private toMessageDto(message: any): MessageDto {
     return {
       id: message.id,

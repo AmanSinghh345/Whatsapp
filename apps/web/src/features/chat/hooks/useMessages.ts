@@ -1,5 +1,3 @@
-// apps/web/src/features/chat/hooks/useMessages.ts
-
 import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchMessages, sendMessage, MessageDto } from "../api/messages.api";
 
@@ -30,10 +28,11 @@ export function useMessages(chatId: string | null) {
         if (!cancelled) setLoading(false);
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [chatId]);
 
-  // Auto-scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -45,7 +44,11 @@ export function useMessages(chatId: string | null) {
       setError(null);
       try {
         const msg = await sendMessage(chatId, text.trim());
-        setMessages((prev) => [...prev, msg]);
+        // Dedup — socket broadcast may have already added this message
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
       } catch (e: any) {
         setError(e.message);
       } finally {
@@ -55,10 +58,8 @@ export function useMessages(chatId: string | null) {
     [chatId]
   );
 
-  // Used later when Socket.IO pushes a new message
   const appendMessage = useCallback((msg: MessageDto) => {
     setMessages((prev) => {
-      // Avoid duplicates (REST send + socket:new both arriving)
       if (prev.some((m) => m.id === msg.id)) return prev;
       return [...prev, msg];
     });

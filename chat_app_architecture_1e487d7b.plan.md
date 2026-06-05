@@ -27,6 +27,7 @@ isProject: false
 ---
 
 ## 1) Scope + key assumptions (v1)
+
 - Chats: `direct` (1:1) and `group` (multi-user).
 - Messaging semantics: “sent/delivered/seen” are tracked per recipient device via server-side receipts; for offline users, delivery is considered when the recipient comes online and the message is available/acknowledged.
 - Media: attachments via Cloudinary; backend stores Cloudinary metadata.
@@ -36,7 +37,9 @@ isProject: false
 - WebRTC: Socket.IO used only for signaling and call state updates.
 
 ## 2) High-level architecture (clean + modular)
+
 **Backend (NestJS)**
+
 - Layering per feature:
   - `controllers/` (HTTP + Socket handlers)
   - `application/` (use-cases/services coordinating domain logic)
@@ -49,6 +52,7 @@ isProject: false
   - `common/` (Result/Either, pagination types, error mapping)
 
 **Shared types**
+
 - `packages/shared/` holds:
   - DTO shapes for HTTP
   - Socket event payload typings
@@ -56,6 +60,7 @@ isProject: false
   - Common enums/constants (message status, chat type)
 
 **Frontend (Next.js App Router)**
+
 - Feature-based UI and data layer:
   - `src/features/<feature>/components`
   - `src/features/<feature>/hooks` (Zustand selectors + socket handlers)
@@ -64,13 +69,16 @@ isProject: false
 - A single “realtime service” responsible for subscribing/unsubscribing Socket.IO events and dispatching into Zustand stores.
 
 ## 3) Proposed repository + folder structure
+
 ### Monorepo root
+
 - `apps/web/` (Next.js)
 - `apps/api/` (NestJS)
 - `packages/shared/` (types + event contracts)
 - `packages/shared-sql/` (optional: generated helpers from Prisma types)
 
 ### Backend folder structure
+
 - `[apps/api/src/main.ts](apps/api/src/main.ts)`
 - `[apps/api/src/common/](apps/api/src/common/)` (errors, pagination, logging, Result)
 - `[apps/api/src/auth/](apps/api/src/auth/)`
@@ -91,6 +99,7 @@ isProject: false
   - `calls/` (call sessions + signaling state)
 
 ### Frontend folder structure
+
 - `[apps/web/src/app/](apps/web/src/app/)` (routes via App Router)
   - `(auth)/` (login callbacks, profile setup)
   - `(chat)/` (chat list, chat room, call UI)
@@ -110,7 +119,9 @@ isProject: false
   - `time/`, `pagination/`
 
 ## 4) Database schema (Prisma + PostgreSQL)
+
 ### Core entities
+
 - `User`
   - Firebase identifiers (`firebaseUid`) and contact (`phoneE164`, optional)
   - `displayName`, `avatarUrl`
@@ -137,20 +148,24 @@ isProject: false
   - `updatedAt`
 
 ### Presence (ephemeral + persistent)
+
 - `UserPresenceSnapshot` (optional, for last seen)
   - `userId`, `lastSeenAt`, `lastSeenIpOrRegion` (optional)
 - Online presence itself lives in Redis:
   - key pattern: `presence:{userId}` => `{ status, updatedAt }`
 
 ### Typing (ephemeral)
+
 - Redis only:
   - `typing:{chatId}:{userId}` => `{ isTyping, updatedAt }` with TTL.
 
 ### Notifications (unread state)
+
 - `Notification` (optional) or simpler unread counters:
   - `UnreadCounter`: `(userId, chatId)` => `unreadCount`, `lastReadAt`
 
 ### Calls (signaling + state)
+
 - `CallSession`
   - `callId`, `chatId` (or null for direct), `createdById`
   - `status`: `created` | `ringing` | `active` | `ended` | `missed`
@@ -160,6 +175,7 @@ isProject: false
 - Signaling messages are typically not persisted unless you need audit; in v1 we can treat them as transient events.
 
 ### Prisma model outline (not code)
+
 - Types:
   - `id` as `uuid`
   - `createdAt/updatedAt` timestamps
@@ -171,22 +187,27 @@ isProject: false
   - `ChatMember(userId)`
 
 ## 5) API contracts (HTTP REST, mobile-friendly)
+
 General principles:
+
 - All responses are typed and stable.
 - Use cursor-based pagination: `before/after` or `cursor + limit`.
 - All endpoints accept/return shared DTO shapes from `packages/shared`.
 
 ### Auth
+
 - No “login” HTTP endpoints required (client uses Firebase), but backend needs:
   - `POST /auth/verify` (optional): returns normalized `appUser` profile.
   - `GET /me` returns user profile.
 - Phone OTP flows can be handled entirely on the client with Firebase; backend just verifies tokens.
 
 ### Users
+
 - `PATCH /users/me` update `displayName`, `avatar` metadata.
 - `GET /users/:id` minimal profile.
 
 ### Chats
+
 - `POST /chats/direct` create/get 1:1 chat with another user.
 - `POST /chats/group` create group.
 - `POST /chats/:chatId/members` add member(s) (group only).
@@ -194,6 +215,7 @@ General principles:
 - `GET /chats/:chatId/messages` history (cursor pagination).
 
 ### Messages
+
 - `POST /chats/:chatId/messages`
   - Accepts `clientMessageId`, `content` or attachment metadata pointer.
   - Returns `serverMessageId`, timestamps.
@@ -201,12 +223,14 @@ General principles:
   - `POST` is for “seen”/“delivered” writes from client (or socket-only, your choice). For v1, choose socket-based receipt writes.
 
 ### Media (Cloudinary)
+
 - `POST /media/uploads/signature`
   - Returns Cloudinary signed params (or preset-based) for the client.
 - `POST /media/attachments/confirm`
   - Client confirms upload metadata; returns attachment entity for message creation.
 
 ### Calls
+
 - `POST /calls/sessions`
   - create call session (direct/group based on chatId and participants).
 - `POST /calls/sessions/:callId/end`
@@ -214,17 +238,22 @@ General principles:
 - Signaling is primarily Socket.IO events.
 
 ## 6) Socket.IO events (typed contracts)
+
 ### Connection/auth
+
 - Client connects with `auth: { token }` in Socket.IO.
 - Server middleware verifies Firebase token and attaches `userId`.
 
 ### Room conventions
+
 - `user:{userId}` personal room for direct delivery of events.
 - `chat:{chatId}` for chat-scoped events.
 - For typing/presence, optionally emit to `chat:{chatId}`.
 
 ### Realtime event groups
+
 **Messaging**
+
 - `message:send` (client -> server)
   - payload: `{ chatId, clientMessageId, content }`
 - `message:new` (server -> chat room + sender?)
@@ -235,6 +264,7 @@ General principles:
   - payload: `{ messageId, recipientId, deliveredAt?, seenAt? }`
 
 **Typing indicator**
+
 - `typing:start` / `typing:stop` or a single `typing:update`
   - `{ chatId, isTyping, clientTs }`
 - `typing:state` (server -> chat room)
@@ -242,16 +272,19 @@ General principles:
 - Server uses TTL to expire typing.
 
 **Presence**
+
 - On connect/disconnect and heartbeat:
   - `presence:online` / `presence:offline` (server -> relevant rooms)
 - Client can also request presence:
   - `presence:query` -> `presence:state`
 
 **Notifications**
+
 - `notifications:unreadChanged` (server -> user room)
   - `{ chatId, unreadCount, lastReadAt }`
 
 **Video signaling (WebRTC)**
+
 - Signaling events (names chosen to match payloads):
   - `call:created`
   - `call:join`
@@ -261,7 +294,9 @@ General principles:
 - WebRTC uses peer-to-peer media; Socket.IO only relays signaling.
 
 ## 7) End-to-end data flows
+
 ### A) Send message + delivery/seen
+
 ```mermaid
 sequenceDiagram
   participant ClientSender
@@ -279,14 +314,17 @@ sequenceDiagram
 ```
 
 ### B) Typing indicator
+
 - Client emits `typing:update` with TTL; server broadcasts `typing:state` to `chat:{chatId}`.
 - Server ignores stale updates and rate-limits per user per chat.
 
 ### C) Presence
+
 - Server sets `presence:{userId}` in Redis on connect and clears on disconnect.
 - Server broadcasts presence changes to relevant `user:{userId}` and/or `chat:{chatId}` rooms.
 
 ### D) WebRTC signaling
+
 ```mermaid
 sequenceDiagram
   participant A
@@ -301,8 +339,9 @@ sequenceDiagram
 ```
 
 ## 8) Tradeoffs and production concerns
+
 - **Socket.IO vs raw WebSocket**: Socket.IO simplifies rooms, reconnection, auth, and ACKs; small overhead vs raw WS.
-- **Delivery/seen semantics**: 
+- **Delivery/seen semantics**:
   - Tracking per-device is expensive; per-recipient-user is simpler.
   - “Delivered while offline” is ambiguous; recommended definition: delivered when message is persisted and recipient comes online and acknowledges receipt.
 - **DB vs Redis for receipts**:
@@ -319,6 +358,7 @@ sequenceDiagram
   - Authorize chat membership before allowing `chat:{chatId}` subscriptions.
 
 ## 9) What I will implement next (after your approval)
+
 - Create repo skeleton (monorepo), `packages/shared` event/DTO types.
 - Implement backend feature modules + repositories (Prisma + Redis adapters).
 - Define socket namespaces/rooms and a typed event dispatcher.

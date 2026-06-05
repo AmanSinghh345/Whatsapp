@@ -17,23 +17,21 @@ import {
 import { SocketEvents, type SocketEventName } from "@chat/shared";
 import type {
   TypingUpdatePayload,
-  TypingStatePayload,
   PresenceQueryPayload,
   PresenceStatePayload,
   SendMessageRequestDto,
   UpsertReceiptDto,
-  WebRtcSignalDto,
 } from "@chat/shared";
 
 interface AuthenticatedSocket extends Socket {
   data: {
     user: SocketAuthenticatedUser;
     firebaseUid: string;
+    userId: string; // DB user id
   };
 }
 
 @WebSocketGateway({
-  namespace: "/socket.io",
   cors: {
     origin: (
       origin: string | undefined,
@@ -59,23 +57,21 @@ export class SocketGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private readonly logger = new Logger(SocketGateway.name);
 
-  // Track active connections per user
+  // DB userId -> socket ids
   private userConnections = new Map<string, Set<string>>();
 
-  // Track typing state: chatId -> Map<userId, timestamp>
+  // chatId -> DB userId -> timestamp
   private typingState = new Map<string, Map<string, number>>();
 
-  // Typing timeout duration (ms)
   private readonly TYPING_TIMEOUT = 3000;
   private messageSocketService?: any;
 
   constructor(private readonly socketAuthGuard: SocketAuthGuard) {}
 
-  // Inject MessageSocketService after module initialization to avoid circular dependency
   setMessageSocketService(service: any): void {
     this.messageSocketService = service;
   }
@@ -83,7 +79,6 @@ export class SocketGateway
   afterInit(): void {
     this.logger.log("Socket.IO Gateway initialized");
 
-    // Add authentication middleware
     this.server.use(async (socket, next) => {
       try {
         const canActivate = await this.socketAuthGuard.canActivate({
@@ -106,23 +101,24 @@ export class SocketGateway
   async handleConnection(
     @ConnectedSocket() socket: AuthenticatedSocket,
   ): Promise<void> {
-    const firebaseUid = socket.data.firebaseUid;
+    const firebaseUid = socket.data.firebaseUid; // logging only
+    const userId = socket.data.userId;
     const socketId = socket.id;
 
-    // Track user connections
-    if (!this.userConnections.has(firebaseUid)) {
-      this.userConnections.set(firebaseUid, new Set());
+    if (!this.userConnections.has(userId)) {
+      this.userConnections.set(userId, new Set());
     }
-    this.userConnections.get(firebaseUid)!.add(socketId);
 
-    this.logger.log(`Client connected: ${socketId} (user: ${firebaseUid})`);
+    this.userConnections.get(userId)!.add(socketId);
 
-    // Join user-specific room for direct messaging
-    socket.join(`user:${firebaseUid}`);
+    this.logger.log(
+      `Client connected: ${socketId} (userId: ${userId}, firebaseUid: ${firebaseUid})`,
+    );
 
-    // Emit online presence
+    socket.join(`user:${userId}`);
+
     this.server.emit(SocketEvents.presenceOnline, {
-      userId: firebaseUid,
+      userId,
       state: "online",
       updatedAt: new Date().toISOString(),
     } as PresenceStatePayload);
@@ -131,28 +127,29 @@ export class SocketGateway
   async handleDisconnect(
     @ConnectedSocket() socket: AuthenticatedSocket,
   ): Promise<void> {
-    const firebaseUid = socket.data.firebaseUid;
+    const firebaseUid = socket.data.firebaseUid; // logging only
+    const userId = socket.data.userId;
     const socketId = socket.id;
 
-    // Remove user connection tracking
-    const userSockets = this.userConnections.get(firebaseUid);
+    const userSockets = this.userConnections.get(userId);
+
     if (userSockets) {
       userSockets.delete(socketId);
-      if (userSockets.size === 0) {
-        this.userConnections.delete(firebaseUid);
 
-        // Emit offline presence only if no other connections
+      if (userSockets.size === 0) {
+        this.userConnections.delete(userId);
+
         this.server.emit(SocketEvents.presenceOffline, {
-          userId: firebaseUid,
+          userId,
           state: "offline",
           lastSeenAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         } as PresenceStatePayload);
 
-        // Clean up typing state for this user
         for (const [chatId, typingMap] of this.typingState.entries()) {
-          if (typingMap.has(firebaseUid)) {
-            typingMap.delete(firebaseUid);
+          if (typingMap.has(userId)) {
+            typingMap.delete(userId);
+
             if (typingMap.size === 0) {
               this.typingState.delete(chatId);
             }
@@ -161,33 +158,25 @@ export class SocketGateway
       }
     }
 
-    this.logger.log(`Client disconnected: ${socketId} (user: ${firebaseUid})`);
+    this.logger.log(
+      `Client disconnected: ${socketId} (userId: ${userId}, firebaseUid: ${firebaseUid})`,
+    );
   }
 
-  /**
-   * Client sends a message.
-   * Delegates validation, persistence, and broadcasting to the message service.
-   */
   @SubscribeMessage(SocketEvents.messageSend)
   async handleMessageSend(
     @ConnectedSocket() socket: AuthenticatedSocket,
     @MessageBody() payload: SendMessageRequestDto,
   ): Promise<void> {
-    const firebaseUid = socket.data.firebaseUid;
+    const userId = socket.data.userId;
 
     this.logger.debug(
-      `Message send event from ${firebaseUid}: ${JSON.stringify(payload)}`,
+      `Message send event from userId ${userId}: ${JSON.stringify(payload)}`,
     );
 
-    // Delegate to MessageSocketService for persistence and broadcasting
     if (this.messageSocketService?.handleMessageSend) {
-      await this.messageSocketService.handleMessageSend(
-        socket,
-        firebaseUid,
-        payload,
-      );
+      await this.messageSocketService.handleMessageSend(socket, userId, payload);
     } else {
-      // Fallback if service not available
       socket.emit("message:send:ack", {
         clientMessageId: payload.clientMessageId,
         status: "received",
@@ -200,21 +189,19 @@ export class SocketGateway
     @ConnectedSocket() socket: AuthenticatedSocket,
     @MessageBody() payload: UpsertReceiptDto,
   ): Promise<void> {
-    const firebaseUid = socket.data.firebaseUid;
+    const userId = socket.data.userId;
 
     this.logger.debug(
-      `Receipt upsert from ${firebaseUid}: ${JSON.stringify(payload)}`,
+      `Receipt upsert from userId ${userId}: ${JSON.stringify(payload)}`,
     );
 
-    // Delegate to MessageSocketService for persistence and broadcasting
     if (this.messageSocketService?.handleReceiptUpsert) {
       await this.messageSocketService.handleReceiptUpsert(
         socket,
-        firebaseUid,
+        userId,
         payload,
       );
     } else {
-      // Fallback if service not available
       socket.emit("message:receipt:upsert:ack", {
         messageId: payload.messageId,
         status: "received",
@@ -222,18 +209,14 @@ export class SocketGateway
     }
   }
 
-  /**
-   * Client signals typing state
-   */
   @SubscribeMessage(SocketEvents.typingUpdate)
   handleTypingUpdate(
     @ConnectedSocket() socket: AuthenticatedSocket,
     @MessageBody() payload: TypingUpdatePayload,
   ): void {
-    const firebaseUid = socket.data.firebaseUid;
+    const userId = socket.data.userId;
     const chatId = payload.chatId;
 
-    // Initialize typing state for chat if needed
     if (!this.typingState.has(chatId)) {
       this.typingState.set(chatId, new Map());
     }
@@ -241,24 +224,18 @@ export class SocketGateway
     const typingMap = this.typingState.get(chatId)!;
 
     if (payload.isTyping) {
-      // Record typing
-      typingMap.set(firebaseUid, Date.now());
+      typingMap.set(userId, Date.now());
     } else {
-      // Clear typing
-      typingMap.delete(firebaseUid);
+      typingMap.delete(userId);
     }
 
-    // Broadcast typing state to all users in chat
-    const typingUsers = Array.from(typingMap.entries())
-      .filter(([_, ts]) => Date.now() - ts < this.TYPING_TIMEOUT)
-      .map(([userId, _]) => userId);
-
-    // Update map to remove stale entries
-    for (const [userId, ts] of typingMap.entries()) {
+    for (const [typingUserId, ts] of typingMap.entries()) {
       if (Date.now() - ts >= this.TYPING_TIMEOUT) {
-        typingMap.delete(userId);
+        typingMap.delete(typingUserId);
       }
     }
+
+    const typingUsers = Array.from(typingMap.keys());
 
     this.server.to(`chat:${chatId}`).emit(SocketEvents.typingState, {
       chatId,
@@ -271,124 +248,93 @@ export class SocketGateway
     );
   }
 
-  /**
-   * Client queries presence of other users
-   */
   @SubscribeMessage(SocketEvents.presenceQuery)
   handlePresenceQuery(
     @ConnectedSocket() socket: AuthenticatedSocket,
     @MessageBody() payload: PresenceQueryPayload,
   ): void {
-    const firebaseUid = socket.data.firebaseUid;
+    const userId = socket.data.userId;
     const userIds = payload.userIds;
 
-    // Check which users are online
-    const presenceData = userIds.map((userId) => ({
-      userId,
-      state: this.userConnections.has(userId) ? "online" : "offline",
+    const presenceData = userIds.map((targetUserId) => ({
+      userId: targetUserId,
+      state: this.userConnections.has(targetUserId) ? "online" : "offline",
       updatedAt: new Date().toISOString(),
     })) as PresenceStatePayload[];
 
     socket.emit(SocketEvents.presenceState, presenceData);
+
     this.logger.debug(
-      `Presence query from ${firebaseUid}: ${userIds.length} users`,
+      `Presence query from userId ${userId}: ${userIds.length} users`,
     );
   }
 
-  /**
-   * Client joins a chat room
-   * Emitted as: socket.emit("chat:join", { chatId: "..." })
-   */
   @SubscribeMessage("chat:join")
   handleChatJoin(
     @ConnectedSocket() socket: AuthenticatedSocket,
     @MessageBody() payload: { chatId: string },
   ): void {
-    const firebaseUid = socket.data.firebaseUid;
+    const userId = socket.data.userId;
     const { chatId } = payload;
 
     this.joinChatRoom(socket, chatId);
-    this.logger.log(`User ${firebaseUid} joined chat ${chatId}`);
+    this.logger.log(`User ${userId} joined chat ${chatId}`);
 
-    // Notify chat members
     this.server.to(`chat:${chatId}`).emit("chat:member_joined", {
-      userId: firebaseUid,
+      userId,
       timestamp: new Date().toISOString(),
     });
   }
 
-  /**
-   * Client leaves a chat room
-   * Emitted as: socket.emit("chat:leave", { chatId: "..." })
-   */
   @SubscribeMessage("chat:leave")
   handleChatLeave(
     @ConnectedSocket() socket: AuthenticatedSocket,
     @MessageBody() payload: { chatId: string },
   ): void {
-    const firebaseUid = socket.data.firebaseUid;
+    const userId = socket.data.userId;
     const { chatId } = payload;
 
-    // Notify chat members before leaving
     this.server.to(`chat:${chatId}`).emit("chat:member_left", {
-      userId: firebaseUid,
+      userId,
       timestamp: new Date().toISOString(),
     });
 
     this.leaveChatRoom(socket, chatId);
-    this.logger.log(`User ${firebaseUid} left chat ${chatId}`);
+    this.logger.log(`User ${userId} left chat ${chatId}`);
   }
 
-  /**
-   * Client joins a chat room
-   */
   joinChatRoom(socket: AuthenticatedSocket, chatId: string): void {
     socket.join(`chat:${chatId}`);
     this.logger.debug(`Socket ${socket.id} joined room chat:${chatId}`);
   }
 
-  /**
-   * Client leaves a chat room
-   */
   leaveChatRoom(socket: AuthenticatedSocket, chatId: string): void {
     socket.leave(`chat:${chatId}`);
     this.logger.debug(`Socket ${socket.id} left room chat:${chatId}`);
   }
 
-  /**
-   * Broadcast message to chat room
-   */
   broadcastMessageToChat(
     chatId: string,
     eventName: SocketEventName,
-    payload: any,
+    payload: unknown,
   ): void {
     this.server.to(`chat:${chatId}`).emit(eventName, payload);
   }
 
-  /**
-   * Broadcast to specific user
-   */
   broadcastToUser(
-    firebaseUid: string,
+    userId: string,
     eventName: SocketEventName,
-    payload: any,
+    payload: unknown,
   ): void {
-    this.server.to(`user:${firebaseUid}`).emit(eventName, payload);
+    this.server.to(`user:${userId}`).emit(eventName, payload);
   }
 
-  /**
-   * Get all sockets for a user
-   */
-  getUserSockets(firebaseUid: string): string[] {
-    return Array.from(this.userConnections.get(firebaseUid) || []);
+  getUserSockets(userId: string): string[] {
+    return Array.from(this.userConnections.get(userId) || []);
   }
 
-  /**
-   * Check if user is online
-   */
-  isUserOnline(firebaseUid: string): boolean {
-    const sockets = this.userConnections.get(firebaseUid);
+  isUserOnline(userId: string): boolean {
+    const sockets = this.userConnections.get(userId);
     return sockets ? sockets.size > 0 : false;
   }
 }
