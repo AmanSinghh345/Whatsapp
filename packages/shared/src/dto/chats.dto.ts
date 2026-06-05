@@ -1,4 +1,5 @@
 import type { Id, ISODateString } from "../types/index.js";
+import type { UserDto } from "./users.dto.js";
 
 export type ChatType = "direct" | "group";
 
@@ -7,6 +8,8 @@ export type ChatDto = {
   type: ChatType;
   title?: string;
   avatarUrl?: string;
+  memberIds?: Id[];
+  members?: ChatMemberDto[];
   createdAt: ISODateString;
   updatedAt: ISODateString;
 };
@@ -18,6 +21,7 @@ export type ChatMemberDto = {
   userId: Id;
   role: ChatMemberRole;
   joinedAt: ISODateString;
+  user?: UserDto;
 };
 
 export type CreateDirectChatRequestDto = {
@@ -28,4 +32,3 @@ export type CreateGroupChatRequestDto = {
   title: string;
   memberUserIds: Id[];
 };
-

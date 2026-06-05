@@ -1,7 +1,8 @@
-import { io, Socket } from "socket.io-client";
+import { io, type Socket } from "socket.io-client";
 
 const SOCKET_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace("/api", "") ?? "http://localhost:4000";
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace("/api", "") ??
+  "http://localhost:4000";
 
 declare global {
   interface Window { __socket?: Socket; }
@@ -26,7 +27,7 @@ export async function getSocket(): Promise<Socket> {
   if (existing) {
     existing.removeAllListeners();
     existing.disconnect();
-    window.__socket = undefined;
+    delete window.__socket;
   }
 
   const { getAuth } = await import("firebase/auth");
@@ -75,5 +76,5 @@ export function disconnectSocket() {
   const existing = getExistingSocket();
   existing?.removeAllListeners();
   existing?.disconnect();
-  if (typeof window !== "undefined") window.__socket = undefined;
+  if (typeof window !== "undefined") delete window.__socket;
 }

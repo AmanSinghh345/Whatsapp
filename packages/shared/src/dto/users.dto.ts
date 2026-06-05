@@ -13,5 +13,6 @@ export type UserDto = {
 
 export type UpdateMeRequestDto = {
   displayName?: string;
+  phoneE164?: string | null;
   avatarUrl?: string;
 };

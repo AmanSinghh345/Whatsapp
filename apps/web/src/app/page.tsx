@@ -1,28 +1,60 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import type { ChatDto } from "@chat/shared";
+import type { ChatDto, ChatMemberDto, UserDto } from "@chat/shared";
 import { ProtectedRoute } from "../features/auth/components/protected-route";
 import { useAuthStore } from "../features/auth/store/auth.store";
 import { createDirectChat, fetchChats } from "../features/chat/api/chats.api";
 import { MessageThread } from "../features/chat/components/MessageThread";
 import { usePresence } from "../features/realtime/usePresence";
 import { PresenceDot } from "../features/chat/components/PresenceDot";
+import { searchUserByPhone } from "../features/user/api/users.api";
 
-type ChatWithMembers = ChatDto & {
-  memberIds?: string[];
-};
+function getOtherMembers(chat: ChatDto, currentUserId?: string): ChatMemberDto[] {
+  return (chat.members ?? []).filter((member) => member.userId !== currentUserId);
+}
 
-function getOtherMemberIds(chat: ChatWithMembers, currentUserId?: string) {
-  return (chat.memberIds ?? []).filter((id) => id !== currentUserId);
+function getOtherMemberIds(chat: ChatDto, currentUserId?: string) {
+  return getOtherMembers(chat, currentUserId).map((member) => member.userId);
+}
+
+function getChatTitle(chat: ChatDto, currentUserId?: string) {
+  if (chat.type === "group") {
+    return chat.title ?? "Group chat";
+  }
+
+  return getOtherMembers(chat, currentUserId)[0]?.user?.displayName ?? "Direct chat";
+}
+
+function getChatSubtitle(chat: ChatDto, currentUserId?: string) {
+  if (chat.type === "group") {
+    return `${chat.members?.length ?? 0} members`;
+  }
+
+  const otherUser = getOtherMembers(chat, currentUserId)[0]?.user;
+  return otherUser?.phoneE164 ?? otherUser?.email ?? "Direct message";
+}
+
+function Avatar({ user, label }: { user?: UserDto | undefined; label: string }) {
+  return (
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-700 text-sm font-semibold">
+      {user?.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+      ) : (
+        label.slice(0, 1).toUpperCase() || "U"
+      )}
+    </div>
+  );
 }
 
 export default function HomePage() {
   const user = useAuthStore((s) => s.user);
 
-  const [chats, setChats] = useState<ChatWithMembers[]>([]);
+  const [chats, setChats] = useState<ChatDto[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  const [otherUserId, setOtherUserId] = useState("");
+  const [phoneSearch, setPhoneSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +79,7 @@ export default function HomePage() {
 
     try {
       const result = await fetchChats();
-      setChats(result.data as ChatWithMembers[]);
+      setChats(result.data);
       setSelectedChatId((current) => {
         if (current && result.data.some((chat) => chat.id === current)) {
           return current;
@@ -65,10 +97,10 @@ export default function HomePage() {
   async function handleCreateDirectChat(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const trimmedUserId = otherUserId.trim();
+    const trimmedPhone = phoneSearch.trim();
 
-    if (!trimmedUserId) {
-      setError("Enter a user id to start a chat.");
+    if (!trimmedPhone) {
+      setError("Enter a phone number to start a chat.");
       return;
     }
 
@@ -76,15 +108,21 @@ export default function HomePage() {
     setError(null);
 
     try {
-      const chat = await createDirectChat({ otherUserId: trimmedUserId });
+      const foundUser = await searchUserByPhone(trimmedPhone);
+
+      if (foundUser.id === user?.id) {
+        throw new Error("You cannot create a direct chat with yourself.");
+      }
+
+      const chat = await createDirectChat({ otherUserId: foundUser.id });
 
       setChats((current) => {
         const withoutDuplicate = current.filter((item) => item.id !== chat.id);
-        return [chat as ChatWithMembers, ...withoutDuplicate];
+        return [chat, ...withoutDuplicate];
       });
 
       setSelectedChatId(chat.id);
-      setOtherUserId("");
+      setPhoneSearch("");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to create chat.");
     } finally {
@@ -124,9 +162,31 @@ export default function HomePage() {
               </button>
             </div>
 
-            <p className="mt-3 break-all rounded-md bg-white/[0.03] p-2 text-[11px] leading-4 text-white/45">
-              Your user id: {user?.id}
-            </p>
+            <Link
+              href="/profile"
+              className="mt-3 flex items-center gap-3 rounded-md bg-white/[0.03] p-2 hover:bg-white/[0.06]"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-700 text-sm font-semibold">
+                {user?.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={user.avatarUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  user?.displayName.slice(0, 1).toUpperCase() ?? "U"
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium text-white/75">
+                  View profile
+                </p>
+                <p className="truncate text-[11px] text-white/40">
+                  {user?.phoneE164 ?? "Add your phone number"}
+                </p>
+              </div>
+            </Link>
           </div>
 
           <form
@@ -137,14 +197,14 @@ export default function HomePage() {
               htmlFor="other-user-id"
               className="mb-2 block text-xs font-medium text-white/65"
             >
-              Start direct chat
+              Start direct chat by phone
             </label>
 
             <input
               id="other-user-id"
-              value={otherUserId}
-              onChange={(event) => setOtherUserId(event.target.value)}
-              placeholder="Paste another user id"
+              value={phoneSearch}
+              onChange={(event) => setPhoneSearch(event.target.value)}
+              placeholder="+919876543210"
               className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-emerald-500"
             />
 
@@ -153,8 +213,11 @@ export default function HomePage() {
               disabled={isCreating}
               className="mt-3 w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isCreating ? "Creating..." : "Create chat"}
+              {isCreating ? "Searching..." : "Find and create chat"}
             </button>
+            <p className="mt-2 text-[11px] leading-4 text-white/40">
+              Use full E.164 format, for example +917999106835.
+            </p>
           </form>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -166,7 +229,11 @@ export default function HomePage() {
               <div className="space-y-1">
                 {chats.map((chat) => {
                   const isSelected = chat.id === selectedChatId;
-                  const otherMemberIds = getOtherMemberIds(chat, user?.id);
+                  const otherMembers = getOtherMembers(chat, user?.id);
+                  const otherUser = otherMembers[0]?.user;
+                  const title = getChatTitle(chat, user?.id);
+                  const subtitle = getChatSubtitle(chat, user?.id);
+                  const otherMemberIds = otherMembers.map((member) => member.userId);
                   const hasOnlineMember = otherMemberIds.some((id) =>
                     isOnline(id),
                   );
@@ -180,15 +247,25 @@ export default function HomePage() {
                         isSelected ? "bg-white/10" : ""
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <PresenceDot online={hasOnlineMember} />
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <Avatar user={otherUser} label={title} />
+                          <span className="absolute bottom-0 right-0 rounded-full bg-zinc-950 p-0.5">
+                            <PresenceDot online={hasOnlineMember} />
+                          </span>
+                        </div>
 
-                        <span className="block truncate text-sm font-medium">
-                          {chat.title ?? `${chat.type} chat`}
-                        </span>
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">
+                            {title}
+                          </span>
+                          <span className="mt-1 block truncate text-xs text-white/45">
+                            {subtitle}
+                          </span>
+                        </div>
                       </div>
 
-                      <span className="mt-1 block truncate text-xs text-white/45">
+                      <span className="mt-2 block truncate pl-[52px] text-xs text-white/35">
                         Updated {new Date(chat.updatedAt).toLocaleString()}
                       </span>
                     </button>
@@ -201,15 +278,31 @@ export default function HomePage() {
 
         <section className="flex min-w-0 flex-1 flex-col">
           <header className="border-b border-white/10 px-6 py-4">
-            <h1 className="truncate text-lg font-semibold">
-              {selectedChat
-                ? selectedChat.title ?? `${selectedChat.type} chat`
-                : "Select a conversation"}
-            </h1>
-
-            <p className="mt-1 truncate text-xs text-white/45">
-              {selectedChat ? selectedChat.id : "Create or choose a chat"}
-            </p>
+            {selectedChat ? (
+              <div className="flex items-center gap-3">
+                <Avatar
+                  user={getOtherMembers(selectedChat, user?.id)[0]?.user}
+                  label={getChatTitle(selectedChat, user?.id)}
+                />
+                <div className="min-w-0">
+                  <h1 className="truncate text-lg font-semibold">
+                    {getChatTitle(selectedChat, user?.id)}
+                  </h1>
+                  <p className="mt-1 truncate text-xs text-white/45">
+                    {getChatSubtitle(selectedChat, user?.id)}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h1 className="truncate text-lg font-semibold">
+                  Select a conversation
+                </h1>
+                <p className="mt-1 truncate text-xs text-white/45">
+                  Create or choose a chat
+                </p>
+              </>
+            )}
           </header>
 
           {error && (
@@ -227,7 +320,7 @@ export default function HomePage() {
 
                 <p className="mt-2 text-sm leading-6 text-white/55">
                   Create a direct chat from the sidebar using another signed-in
-                  user&apos;s id.
+                  user&apos;s phone number.
                 </p>
               </div>
             </div>

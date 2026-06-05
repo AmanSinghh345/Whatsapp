@@ -68,7 +68,7 @@ export class ChatService {
           },
         },
       },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
 
     this.logger.log(
@@ -120,7 +120,7 @@ export class ChatService {
           },
         },
       },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
 
     this.logger.log(
@@ -143,7 +143,7 @@ export class ChatService {
           some: { userId },
         },
       },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
       orderBy: { updatedAt: "desc" },
       take: limit + 1, // Get one extra to determine if there's a next page
       ...(cursor && { skip: 1, cursor: { id: cursor } }),
@@ -167,7 +167,7 @@ export class ChatService {
   async getChat(chatId: string, userId: string): Promise<ChatDto> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
 
     if (!chat) {
@@ -192,7 +192,7 @@ export class ChatService {
   ): Promise<ChatMemberDto[]> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
 
     if (!chat) {
@@ -218,7 +218,7 @@ export class ChatService {
   ): Promise<ChatDto> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
 
     if (!chat) {
@@ -265,7 +265,7 @@ export class ChatService {
 
     const updated = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
 
     return this.toChatDto(updated!);
@@ -281,7 +281,7 @@ export class ChatService {
   ): Promise<void> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
 
     if (!chat) {
@@ -319,7 +319,7 @@ export class ChatService {
   async deleteChat(chatId: string, currentUserId: string): Promise<void> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
 
     if (!chat) {
@@ -351,7 +351,7 @@ export class ChatService {
           },
         },
       },
-      include: { members: true },
+      include: { members: { include: { user: true } } },
     });
   }
 
@@ -362,8 +362,10 @@ export class ChatService {
     return {
       id: chat.id,
       type: chat.type,
-      title: chat.title,
-      avatarUrl: chat.avatarUrl,
+      ...(chat.title ? { title: chat.title } : {}),
+      ...(chat.avatarUrl ? { avatarUrl: chat.avatarUrl } : {}),
+      memberIds: chat.members?.map((member: any) => member.userId),
+      members: chat.members?.map((member: any) => this.toChatMemberDto(member)),
       createdAt: chat.createdAt.toISOString(),
       updatedAt: chat.updatedAt.toISOString(),
     };
@@ -378,6 +380,20 @@ export class ChatService {
       userId: member.userId,
       role: member.role,
       joinedAt: member.joinedAt.toISOString(),
+      ...(member.user ? { user: this.toUserDto(member.user) } : {}),
+    };
+  }
+
+  private toUserDto(user: any) {
+    return {
+      id: user.id,
+      firebaseUid: user.firebaseUid,
+      ...(user.email ? { email: user.email } : {}),
+      ...(user.phoneE164 ? { phoneE164: user.phoneE164 } : {}),
+      displayName: user.displayName,
+      ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+      createdAt: user.createdAt.toISOString(),
+      updatedAt: user.updatedAt.toISOString(),
     };
   }
 }
