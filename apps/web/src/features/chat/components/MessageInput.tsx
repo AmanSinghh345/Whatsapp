@@ -1,13 +1,14 @@
-// apps/web/src/features/chat/components/MessageInput.tsx
+"use client";
 
 import { useState, KeyboardEvent } from "react";
 
 interface Props {
   onSend: (text: string) => void;
+  onKeyStroke?: () => void;   // ← add this
   disabled?: boolean;
 }
 
-export function MessageInput({ onSend, disabled }: Props) {
+export function MessageInput({ onSend, onKeyStroke, disabled }: Props) {
   const [value, setValue] = useState("");
 
   const handleSend = () => {
@@ -20,14 +21,19 @@ export function MessageInput({ onSend, disabled }: Props) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+      return;
     }
+    onKeyStroke?.();  // ← emit typing on every keystroke
   };
 
   return (
     <div className="flex items-end gap-2 border-t border-white/10 bg-zinc-900 px-4 py-3">
       <textarea
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value);
+          onKeyStroke?.();   // ← also emit on paste/autocomplete
+        }}
         onKeyDown={handleKeyDown}
         disabled={disabled}
         placeholder="Type a message…"

@@ -3,8 +3,11 @@
 import { useCallback } from "react";
 import { useMessages } from "../hooks/useMessages";
 import { useRealtimeMessages } from "../../realtime/useRealtimeMessages";
+import { useTyping } from "../../realtime/useTyping";
+import { useTypingIndicator } from "../../realtime/useTypingIndicator";
 import { MessageBubble } from "./MessageBubble";
 import { MessageInput } from "./MessageInput";
+import { TypingBubble } from "./TypingBubble";
 
 interface Props {
   chatId: string;
@@ -15,15 +18,15 @@ export function MessageThread({ chatId, currentUserId }: Props) {
   const { messages, loading, sending, error, send, appendMessage, bottomRef } =
     useMessages(chatId);
 
-  // Stable callback so the effect doesn't re-run on every render
   const handleIncoming = useCallback(
-    (msg: typeof messages[number]) => {
-      appendMessage(msg);
-    },
+    (msg: typeof messages[number]) => appendMessage(msg),
     [appendMessage]
   );
 
   useRealtimeMessages({ chatId, onMessage: handleIncoming });
+
+  const { onKeyStroke } = useTyping(chatId, currentUserId);
+  const { isTyping } = useTypingIndicator(chatId, currentUserId);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -33,11 +36,13 @@ export function MessageThread({ chatId, currentUserId }: Props) {
             Loading messages…
           </p>
         )}
+
         {!loading && messages.length === 0 && (
           <p className="text-center text-sm text-white/40 mt-10">
             No messages yet. Say hello! 👋
           </p>
         )}
+
         {messages.map((msg) => (
           <MessageBubble
             key={msg.id}
@@ -45,6 +50,10 @@ export function MessageThread({ chatId, currentUserId }: Props) {
             isOwn={msg.senderId === currentUserId}
           />
         ))}
+
+        {/* Typing indicator bubble */}
+        {isTyping && <TypingBubble />}
+
         <div ref={bottomRef} />
       </div>
 
@@ -54,7 +63,11 @@ export function MessageThread({ chatId, currentUserId }: Props) {
         </div>
       )}
 
-      <MessageInput onSend={send} disabled={sending} />
+      <MessageInput
+        onSend={send}
+        onKeyStroke={onKeyStroke}
+        disabled={sending}
+      />
     </div>
   );
 }

@@ -5,12 +5,22 @@ import type { ChatDto } from "@chat/shared";
 import { ProtectedRoute } from "../features/auth/components/protected-route";
 import { useAuthStore } from "../features/auth/store/auth.store";
 import { createDirectChat, fetchChats } from "../features/chat/api/chats.api";
-
 import { MessageThread } from "../features/chat/components/MessageThread";
+import { usePresence } from "../features/realtime/usePresence";
+import { PresenceDot } from "../features/chat/components/PresenceDot";
+
+type ChatWithMembers = ChatDto & {
+  memberIds?: string[];
+};
+
+function getOtherMemberIds(chat: ChatWithMembers, currentUserId?: string) {
+  return (chat.memberIds ?? []).filter((id) => id !== currentUserId);
+}
 
 export default function HomePage() {
   const user = useAuthStore((s) => s.user);
-  const [chats, setChats] = useState<ChatDto[]>([]);
+
+  const [chats, setChats] = useState<ChatWithMembers[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [otherUserId, setOtherUserId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -22,17 +32,27 @@ export default function HomePage() {
     [chats, selectedChatId],
   );
 
+  const otherUserIds = useMemo(() => {
+    if (!user) return [];
+
+    const ids = chats.flatMap((chat) => getOtherMemberIds(chat, user.id));
+    return Array.from(new Set(ids));
+  }, [chats, user?.id]);
+
+  const { isOnline } = usePresence(otherUserIds);
+
   async function loadChats() {
     setIsLoading(true);
     setError(null);
 
     try {
       const result = await fetchChats();
-      setChats(result.data);
+      setChats(result.data as ChatWithMembers[]);
       setSelectedChatId((current) => {
         if (current && result.data.some((chat) => chat.id === current)) {
           return current;
         }
+
         return result.data[0]?.id ?? null;
       });
     } catch (error) {
@@ -44,6 +64,7 @@ export default function HomePage() {
 
   async function handleCreateDirectChat(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
     const trimmedUserId = otherUserId.trim();
 
     if (!trimmedUserId) {
@@ -56,10 +77,12 @@ export default function HomePage() {
 
     try {
       const chat = await createDirectChat({ otherUserId: trimmedUserId });
+
       setChats((current) => {
         const withoutDuplicate = current.filter((item) => item.id !== chat.id);
-        return [chat, ...withoutDuplicate];
+        return [chat as ChatWithMembers, ...withoutDuplicate];
       });
+
       setSelectedChatId(chat.id);
       setOtherUserId("");
     } catch (error) {
@@ -85,6 +108,7 @@ export default function HomePage() {
                 <h2 className="truncate text-sm font-semibold">
                   {user?.displayName}
                 </h2>
+
                 <p className="mt-1 truncate text-xs text-white/55">
                   {user?.email ?? user?.phoneE164 ?? user?.id}
                 </p>
@@ -115,6 +139,7 @@ export default function HomePage() {
             >
               Start direct chat
             </label>
+
             <input
               id="other-user-id"
               value={otherUserId}
@@ -122,6 +147,7 @@ export default function HomePage() {
               placeholder="Paste another user id"
               className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-emerald-500"
             />
+
             <button
               type="submit"
               disabled={isCreating}
@@ -140,6 +166,11 @@ export default function HomePage() {
               <div className="space-y-1">
                 {chats.map((chat) => {
                   const isSelected = chat.id === selectedChatId;
+                  const otherMemberIds = getOtherMemberIds(chat, user?.id);
+                  const hasOnlineMember = otherMemberIds.some((id) =>
+                    isOnline(id),
+                  );
+
                   return (
                     <button
                       key={chat.id}
@@ -149,9 +180,14 @@ export default function HomePage() {
                         isSelected ? "bg-white/10" : ""
                       }`}
                     >
-                      <span className="block truncate text-sm font-medium">
-                        {chat.title ?? `${chat.type} chat`}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <PresenceDot online={hasOnlineMember} />
+
+                        <span className="block truncate text-sm font-medium">
+                          {chat.title ?? `${chat.type} chat`}
+                        </span>
+                      </div>
+
                       <span className="mt-1 block truncate text-xs text-white/45">
                         Updated {new Date(chat.updatedAt).toLocaleString()}
                       </span>
@@ -170,34 +206,32 @@ export default function HomePage() {
                 ? selectedChat.title ?? `${selectedChat.type} chat`
                 : "Select a conversation"}
             </h1>
+
             <p className="mt-1 truncate text-xs text-white/45">
               {selectedChat ? selectedChat.id : "Create or choose a chat"}
             </p>
           </header>
 
-         {/* Error banner (chat-level errors, not message errors) */}
-{error && (
-  <div className="mx-6 mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-    {error}
-  </div>
-)}
+          {error && (
+            <div className="mx-6 mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {error}
+            </div>
+          )}
 
-{selectedChatId ? (
-  <MessageThread
-    chatId={selectedChatId}
-    currentUserId={user!.id}   // ← the DB user id stored in your Zustand store
-  />
-) : (
-  <div className="flex flex-1 items-center justify-center p-6">
-    <div className="max-w-md text-center">
-      <h2 className="text-xl font-semibold">Ready for chats</h2>
-      <p className="mt-2 text-sm leading-6 text-white/55">
-        Create a direct chat from the sidebar using another signed-in user's id.
-      </p>
-    </div>
-  </div>
-)}
+          {selectedChatId && user ? (
+            <MessageThread chatId={selectedChatId} currentUserId={user.id} />
+          ) : (
+            <div className="flex flex-1 items-center justify-center p-6">
+              <div className="max-w-md text-center">
+                <h2 className="text-xl font-semibold">Ready for chats</h2>
 
+                <p className="mt-2 text-sm leading-6 text-white/55">
+                  Create a direct chat from the sidebar using another signed-in
+                  user&apos;s id.
+                </p>
+              </div>
+            </div>
+          )}
         </section>
       </main>
     </ProtectedRoute>
