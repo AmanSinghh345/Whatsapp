@@ -1,49 +1,63 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { getSocket } from "./socket.client";
+import { useTypingStore } from "./typing.store";
 
-interface TypingStatePayload {
-  chatId: string;
-  typingUserIds: string[];
-  updatedAt: string;
-}
+type TypingStatePayload =
+  | {
+      chatId: string;
+      typingUserIds: string[];
+      updatedAt: string;
+    }
+  | {
+      chatId: string;
+      userId: string;
+      isTyping: boolean;
+      updatedAt: string;
+    };
 
-export function useTypingIndicator(
-  chatId: string | null,
-  currentUserId: string
-) {
-  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+export function useGlobalTypingListener() {
+  const setTyping = useTypingStore((state) => state.setTyping);
+  const replaceTypingUsers = useTypingStore((state) => state.replaceTypingUsers);
 
   useEffect(() => {
-    if (!chatId) {
-      setTypingUserIds([]);
-      return;
-    }
-
     let active = true;
+    let cleanup: (() => void) | undefined;
 
-    getSocket().then((socket) => {
+    void getSocket().then((socket) => {
       if (!active) return;
 
       const handler = (payload: TypingStatePayload) => {
-        if (payload.chatId !== chatId) return;
-        // Filter out current user — don't show own typing indicator
-        setTypingUserIds(
-          payload.typingUserIds.filter((id) => id !== currentUserId)
-        );
+        console.log("[typing] received typing:state", payload);
+
+        if ("typingUserIds" in payload) {
+          replaceTypingUsers(payload.chatId, payload.typingUserIds);
+          return;
+        }
+
+        setTyping(payload.chatId, payload.userId, payload.isTyping);
       };
 
       socket.on("typing:state", handler);
-
-      return () => {
-        socket.off("typing:state", handler);
-      };
+      cleanup = () => socket.off("typing:state", handler);
     });
 
     return () => {
       active = false;
-      setTypingUserIds([]);
+      cleanup?.();
     };
-  }, [chatId, currentUserId]);
+  }, [replaceTypingUsers, setTyping]);
+}
+
+export function useTypingIndicator(
+  chatId: string | null,
+  currentUserId: string,
+) {
+  useGlobalTypingListener();
+
+  const typingByChatId = useTypingStore((state) => state.typingByChatId);
+  const typingUserIds = chatId
+    ? (typingByChatId[chatId] ?? []).filter((id) => id !== currentUserId)
+    : [];
 
   return { isTyping: typingUserIds.length > 0, typingUserIds };
 }

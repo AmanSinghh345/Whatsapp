@@ -10,13 +10,22 @@ export function useTyping(chatId: string | null, currentUserId: string) {
       if (!chatId) return;
       try {
         const socket = await getSocket();
-        socket.emit("typing:update", { chatId, isTyping });
+        socket.emit("typing:update", {
+          chatId,
+          isTyping,
+          clientTs: new Date().toISOString(),
+        });
+        console.log("[typing] emitted typing:update", {
+          chatId,
+          currentUserId,
+          isTyping,
+        });
         isTypingRef.current = isTyping;
       } catch (e) {
         // non-fatal
       }
     },
-    [chatId]
+    [chatId, currentUserId]
   );
 
   const onKeyStroke = useCallback(() => {

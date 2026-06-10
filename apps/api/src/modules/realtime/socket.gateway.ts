@@ -209,6 +209,10 @@ export class SocketGateway
     const userId = socket.data.userId;
     const chatId = payload.chatId;
 
+    this.logger.log(
+      `[typing] received typing:update userId=${userId} chatId=${chatId} isTyping=${payload.isTyping}`,
+    );
+
     if (!this.typingState.has(chatId)) {
       this.typingState.set(chatId, new Map());
     }
@@ -228,12 +232,19 @@ export class SocketGateway
     }
 
     const typingUsers = Array.from(typingMap.keys());
-
-    this.server.to(`chat:${chatId}`).emit(SocketEvents.typingState, {
+    const typingPayload = {
       chatId,
       typingUserIds: typingUsers,
       updatedAt: new Date().toISOString(),
-    });
+    };
+
+    this.logger.log(
+      `[typing] emitting typing:state room=chat:${chatId} payload=${JSON.stringify(
+        typingPayload,
+      )}`,
+    );
+
+    this.server.to(`chat:${chatId}`).emit(SocketEvents.typingState, typingPayload);
 
     this.logger.debug(
       `Typing update in chat ${chatId}: ${typingUsers.length} users typing`,
@@ -266,7 +277,7 @@ export class SocketGateway
     const { chatId } = payload;
 
     this.joinChatRoom(socket, chatId);
-    this.logger.log(`User ${userId} joined chat ${chatId}`);
+    this.logger.log(`[typing] User ${userId} joined chat:${chatId}`);
 
     this.server.to(`chat:${chatId}`).emit("chat:member_joined", {
       userId,

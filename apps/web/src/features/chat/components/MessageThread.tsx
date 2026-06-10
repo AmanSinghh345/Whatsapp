@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useMessages } from "../hooks/useMessages";
 import { useRealtimeMessages } from "../../realtime/useRealtimeMessages";
 import { useTyping } from "../../realtime/useTyping";
-import { useTypingIndicator } from "../../realtime/useTypingIndicator";
+import { useTypingStore } from "../../realtime/typing.store";
 import { MessageComposer } from "./MessageComposer";
 import { MessageList } from "./MessageList";
 import type { ChatDto } from "@chat/shared";
@@ -48,7 +48,19 @@ export function MessageThread({
   });
 
   const { onKeyStroke } = useTyping(chatId, currentUserId);
-  const { isTyping } = useTypingIndicator(chatId, currentUserId);
+  const typingByChatId = useTypingStore((state) => state.typingByChatId);
+  const typingUserIds = (typingByChatId[chatId] ?? []).filter(
+    (id) => id !== currentUserId,
+  );
+  const isTyping = typingUserIds.length > 0;
+  const typingNames = typingUserIds.map((userId) => {
+    const member = chat?.members?.find((item) => item.userId === userId);
+    return member?.user?.displayName ?? "Someone";
+  });
+  const typingLabel =
+    typingNames.length === 1
+      ? `${typingNames[0]} is typing...`
+      : `${typingNames.length} people are typing...`;
 
   useEffect(() => {
     if (!highlightedMessageId) return;
@@ -60,20 +72,21 @@ export function MessageThread({
   }, [highlightedMessageId, messages]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex min-h-0 flex-1 flex-col bg-[#101114]">
       <MessageList
         chat={chat}
         messages={messages}
         currentUserId={currentUserId}
         loading={loading}
         typing={isTyping}
+        typingLabel={typingLabel}
         highlightedMessageId={highlightedMessageId}
         bottomRef={bottomRef}
         messageRefs={messageRefs}
       />
 
       {error && (
-        <div className="mx-4 mb-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+        <div className="mx-5 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {error}
         </div>
       )}

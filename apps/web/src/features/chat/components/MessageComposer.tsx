@@ -15,7 +15,7 @@ export function MessageComposer({
   onAttach,
   onKeyStroke,
   disabled = false,
-  placeholder = "Message this conversation",
+  placeholder = "Type a message...",
 }: MessageComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -58,8 +58,8 @@ export function MessageComposer({
   };
 
   return (
-    <div className="sticky bottom-0 border-t border-white/10 bg-[#101722]/90 px-3 py-3 shadow-2xl shadow-black/35 backdrop-blur-xl sm:px-5">
-      <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-black/20 p-2 transition focus-within:border-cyan-300/45 focus-within:bg-black/30">
+    <div className="sticky bottom-0 border-t border-white/10 bg-[#17191f] px-4 py-4 shadow-2xl shadow-black/35 sm:px-6">
+      <div className="flex items-end gap-3">
         <input
           ref={fileInputRef}
           type="file"
@@ -74,34 +74,28 @@ export function MessageComposer({
           title="Attach file"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg text-slate-400 transition hover:bg-white/[0.07] hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#20232b] text-slate-400 transition hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
         >
-          +
+          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 0 1-2.8-2.8l8.9-8.9" />
+          </svg>
         </button>
 
-        <button
-          type="button"
-          aria-label="Add emoji"
-          title="Add emoji"
-          disabled={disabled}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg text-slate-400 transition hover:bg-white/[0.07] hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          :)
-        </button>
-
-        <textarea
-          ref={textareaRef}
-          value={value}
-          rows={1}
-          onChange={(event) => {
-            setValue(event.target.value);
-            onKeyStroke?.();
-          }}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          placeholder={placeholder}
-          className="max-h-36 min-h-10 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-500"
-        />
+        <div className="flex min-w-0 flex-1 items-end rounded-3xl border border-white/10 bg-[#20232b] px-5 py-2.5 transition focus-within:border-emerald-400/50">
+          <textarea
+            ref={textareaRef}
+            value={value}
+            rows={1}
+            onChange={(event) => {
+              setValue(event.target.value);
+              onKeyStroke?.();
+            }}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            placeholder={placeholder}
+            className="max-h-36 min-h-8 flex-1 resize-none overflow-y-auto bg-transparent py-1 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-400"
+          />
+        </div>
 
         <button
           type="button"
@@ -109,9 +103,12 @@ export function MessageComposer({
           title="Send message"
           onClick={handleSend}
           disabled={!canSend}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-400 text-sm font-black text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-slate-600"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500 text-sm font-black text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-[#20232b] disabled:text-slate-600"
         >
-          &gt;
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4">
+            <path d="M5 12h14" />
+            <path d="m13 6 6 6-6 6" />
+          </svg>
         </button>
       </div>
     </div>

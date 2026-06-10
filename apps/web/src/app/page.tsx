@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatDto, ChatMemberDto, UserDto } from "@chat/shared";
 import { ProtectedRoute } from "../features/auth/components/protected-route";
 import { useAuthStore } from "../features/auth/store/auth.store";
@@ -12,6 +12,9 @@ import {
 } from "../features/chat/api/messages.api";
 import { MessageThread } from "../features/chat/components/MessageThread";
 import { usePresence } from "../features/realtime/usePresence";
+import { getSocket } from "../features/realtime/socket.client";
+import { useGlobalTypingListener } from "../features/realtime/useTypingIndicator";
+import { useTypingStore } from "../features/realtime/typing.store";
 import { PresenceDot } from "../features/chat/components/PresenceDot";
 import { searchUserByPhone } from "../features/user/api/users.api";
 
@@ -100,9 +103,22 @@ function getChatPresenceStatus(
   );
 }
 
-function Avatar({ user, label }: { user?: UserDto | undefined; label: string }) {
+function Avatar({
+  user,
+  label,
+  size = "md",
+}: {
+  user?: UserDto | undefined;
+  label: string;
+  size?: "sm" | "md" | "lg";
+}) {
+  const sizeClass =
+    size === "lg" ? "h-14 w-14 text-lg" : size === "sm" ? "h-11 w-11" : "h-12 w-12";
+
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-700 text-sm font-semibold">
+    <div
+      className={`flex ${sizeClass} shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-emerald-500 to-slate-700 text-sm font-semibold text-white ring-1 ring-white/10`}
+    >
       {user?.avatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
@@ -115,6 +131,7 @@ function Avatar({ user, label }: { user?: UserDto | undefined; label: string }) 
 
 export default function HomePage() {
   const user = useAuthStore((s) => s.user);
+  const joinedChatIdsRef = useRef<Set<string>>(new Set());
 
   const [chats, setChats] = useState<ChatDto[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
@@ -129,6 +146,10 @@ export default function HomePage() {
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(
     null,
   );
+  const typingByChatId = useTypingStore((state) => state.typingByChatId);
+  const clearTypingChat = useTypingStore((state) => state.clearChat);
+
+  useGlobalTypingListener();
 
   const selectedChat = useMemo(
     () => chats.find((chat) => chat.id === selectedChatId) ?? null,
@@ -240,6 +261,55 @@ export default function HomePage() {
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user?.id || chats.length === 0) {
+      return;
+    }
+
+    let active = true;
+    let cleanupReconnectHandler: (() => void) | undefined;
+    const chatIds = chats.map((chat) => chat.id);
+
+    void getSocket().then((socket) => {
+      if (!active) return;
+
+      const joinAllChats = () => {
+        for (const chatId of chatIds) {
+          console.log("[typing] joining chat room for typing:", chatId);
+          socket.emit("chat:join", { chatId });
+          joinedChatIdsRef.current.add(chatId);
+        }
+      };
+
+      joinAllChats();
+      socket.on("connect", joinAllChats);
+      cleanupReconnectHandler = () => socket.off("connect", joinAllChats);
+    });
+
+    return () => {
+      active = false;
+      cleanupReconnectHandler?.();
+    };
+  }, [chats, user?.id]);
+
+  useEffect(() => {
+    return () => {
+      const joinedChatIds = Array.from(joinedChatIdsRef.current);
+
+      if (joinedChatIds.length === 0) {
+        return;
+      }
+
+      void getSocket().then((socket) => {
+        joinedChatIds.forEach((chatId) => {
+          socket.emit("chat:leave", { chatId });
+          clearTypingChat(chatId);
+        });
+        joinedChatIdsRef.current.clear();
+      });
+    };
+  }, [clearTypingChat]);
+
+  useEffect(() => {
     setMessageSearchQuery("");
     setMessageSearchResults([]);
     setMessageSearchError(null);
@@ -248,95 +318,94 @@ export default function HomePage() {
 
   return (
     <ProtectedRoute>
-      <main className="flex h-screen bg-[#071018] text-zinc-50">
-        <aside className="flex w-80 shrink-0 flex-col border-r border-cyan-200/10 bg-[#0b1720]/95 shadow-2xl shadow-black/30">
-          <div className="border-b border-cyan-200/10 bg-gradient-to-br from-cyan-950/35 via-slate-950/20 to-emerald-950/25 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold">
-                  {user?.displayName}
-                </h2>
-
-                <p className="mt-1 truncate text-xs text-white/55">
-                  {user?.email ?? user?.phoneE164 ?? user?.id}
-                </p>
-              </div>
+      <main className="h-screen overflow-hidden bg-[#0f1013] p-0 text-zinc-50 md:p-6">
+        <div className="mx-auto flex h-full max-w-[1440px] flex-col overflow-hidden border border-white/10 bg-[#111216] shadow-2xl shadow-black/40 md:rounded-3xl lg:flex-row">
+        <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-white/10 bg-[#17191f] lg:w-[380px] lg:border-b-0 lg:border-r">
+          <div className="space-y-5 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <Link href="/profile" className="flex min-w-0 items-center gap-3">
+                <div className="relative">
+                  <Avatar user={user ?? undefined} label={user?.displayName ?? "User"} size="lg" />
+                  <span className="absolute bottom-0 right-0 rounded-full bg-[#17191f] p-1">
+                    <PresenceDot online size="md" />
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <h2 className="truncate text-xl font-bold text-white">
+                    {user?.displayName ?? "Your profile"}
+                  </h2>
+                  <p className="mt-0.5 truncate text-sm text-slate-400">
+                    {user?.phoneE164 ?? user?.email ?? "Add your details"}
+                  </p>
+                </div>
+              </Link>
 
               <button
                 type="button"
                 onClick={() => void loadChats()}
                 disabled={isLoading}
-                className="rounded-md border border-cyan-100/15 bg-white/[0.03] px-2 py-1 text-xs font-medium text-white/80 hover:bg-cyan-100/10 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Refresh chats"
+                title="Refresh chats"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Refresh
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 12a9 9 0 0 1-15.4 6.4" />
+                  <path d="M3 12A9 9 0 0 1 18.4 5.6" />
+                  <path d="M18 2v4h4" />
+                  <path d="M6 22v-4H2" />
+                </svg>
               </button>
             </div>
 
-            <Link
-              href="/profile"
-              className="mt-3 flex items-center gap-3 rounded-md bg-cyan-100/[0.05] p-2 hover:bg-cyan-100/[0.09]"
-            >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-emerald-500 to-cyan-700 text-sm font-semibold">
-                {user?.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={user.avatarUrl}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  user?.displayName.slice(0, 1).toUpperCase() ?? "U"
-                )}
+            <form onSubmit={handleCreateDirectChat} className="space-y-3">
+              <label htmlFor="other-user-id" className="sr-only">
+                Start direct chat by phone
+              </label>
+              <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-[#20232b] px-4 py-3 text-slate-400 shadow-inner shadow-black/20 focus-within:border-emerald-400/50">
+                <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <input
+                  id="other-user-id"
+                  value={phoneSearch}
+                  onChange={(event) => setPhoneSearch(event.target.value)}
+                  placeholder="Search conversations..."
+                  className="min-w-0 flex-1 bg-transparent text-base text-slate-100 outline-none placeholder:text-slate-400"
+                />
+                <button
+                  type="submit"
+                  disabled={isCreating}
+                  className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-[#07110d] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isCreating ? "..." : "New"}
+                </button>
               </div>
-              <div className="min-w-0">
-                <p className="truncate text-xs font-medium text-white/75">
-                  View profile
-                </p>
-                <p className="truncate text-[11px] text-white/40">
-                  {user?.phoneE164 ?? "Add your phone number"}
-                </p>
-              </div>
-            </Link>
+            </form>
+
+            <div className="flex items-center gap-3 text-sm font-semibold text-slate-400">
+              <button type="button" className="flex items-center gap-2 rounded-2xl bg-emerald-500/15 px-4 py-3 text-emerald-400">
+                <span className="h-4 w-4 rounded border border-emerald-400" />
+                All
+              </button>
+              <button type="button" className="flex items-center gap-2 rounded-2xl px-4 py-3 transition hover:bg-white/[0.04] hover:text-slate-100">
+                <span className="text-lg leading-none">::</span>
+                Groups
+              </button>
+              <button type="button" className="flex items-center gap-2 rounded-2xl px-4 py-3 transition hover:bg-white/[0.04] hover:text-slate-100">
+                <span className="h-4 w-4 rounded-full border border-current" />
+                Direct
+              </button>
+            </div>
           </div>
 
-          <form
-            onSubmit={handleCreateDirectChat}
-            className="border-b border-cyan-200/10 bg-[#09141d]/80 p-4"
-          >
-            <label
-              htmlFor="other-user-id"
-              className="mb-2 block text-xs font-medium text-white/65"
-            >
-              Start direct chat by phone
-            </label>
-
-            <input
-              id="other-user-id"
-              value={phoneSearch}
-              onChange={(event) => setPhoneSearch(event.target.value)}
-              placeholder="+919876543210"
-              className="w-full rounded-md border border-cyan-100/15 bg-white/[0.04] px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-cyan-400"
-            />
-
-            <button
-              type="submit"
-              disabled={isCreating}
-              className="mt-3 w-full rounded-md bg-gradient-to-r from-emerald-600 to-cyan-600 px-3 py-2 text-sm font-medium text-white hover:from-emerald-500 hover:to-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isCreating ? "Searching..." : "Find and create chat"}
-            </button>
-            <p className="mt-2 text-[11px] leading-4 text-white/40">
-              Use full E.164 format, for example +917999106835.
-            </p>
-          </form>
-
-          <div className="min-h-0 flex-1 overflow-y-auto bg-[#071018]/70 p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#17191f]">
             {isLoading ? (
-              <p className="px-2 py-3 text-sm text-white/55">Loading chats...</p>
+              <p className="px-5 py-4 text-sm text-slate-400">Loading chats...</p>
             ) : chats.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-white/55">No chats yet</p>
+              <p className="px-5 py-4 text-sm text-slate-400">No chats yet</p>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1 pb-3">
                 {chats.map((chat) => {
                   const isSelected = chat.id === selectedChatId;
                   const otherMembers = getOtherMembers(chat, user?.id);
@@ -351,36 +420,60 @@ export default function HomePage() {
                     otherMembers,
                     getPresence,
                   );
+                  const typingUserIds = (typingByChatId[chat.id] ?? []).filter(
+                    (id) => id !== user?.id,
+                  );
+                  const isTypingInChat = typingUserIds.length > 0;
 
                   return (
                     <button
                       key={chat.id}
                       type="button"
                       onClick={() => setSelectedChatId(chat.id)}
-                      className={`w-full rounded-md px-3 py-3 text-left hover:bg-cyan-100/[0.07] ${
-                        isSelected ? "bg-cyan-100/[0.11]" : ""
+                      className={`group w-full border-l-4 px-5 py-4 text-left transition ${
+                        isSelected
+                          ? "border-emerald-400 bg-emerald-500/10"
+                          : "border-transparent hover:bg-white/[0.04]"
                       }`}
                     >
                       <div className="flex items-center gap-3">
                         <div className="relative">
-                          <Avatar user={otherUser} label={title} />
-                          <span className="absolute bottom-0 right-0 rounded-full bg-[#071018] p-0.5">
-                            <PresenceDot online={hasOnlineMember} />
+                          <Avatar user={otherUser} label={title} size="md" />
+                          <span className="absolute bottom-0 right-0 rounded-full bg-[#17191f] p-1">
+                            <PresenceDot online={hasOnlineMember} size="md" />
                           </span>
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">
+                          <span className={`block truncate text-base font-bold ${isSelected ? "text-emerald-400" : "text-white"}`}>
                             {title}
                           </span>
-                          <span className="mt-1 block truncate text-xs text-white/45">
-                            {presenceStatus}
+                          <span
+                            className={`mt-1 block truncate text-sm ${
+                              isTypingInChat ? "font-semibold text-emerald-400" : "text-slate-400"
+                            }`}
+                          >
+                            {isTypingInChat ? "Typing..." : subtitle}
                           </span>
+                        </div>
+
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <span className="text-xs text-slate-400">
+                            {new Date(chat.updatedAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          {hasOnlineMember ? (
+                            <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-bold text-[#07110d]">
+                              On
+                            </span>
+                          ) : null}
                         </div>
                       </div>
 
-                      <span className="mt-2 block truncate pl-[52px] text-xs text-white/35">
-                        {subtitle}
+                      <span className="mt-2 block truncate pl-[60px] text-xs text-slate-500">
+                        {presenceStatus}
                       </span>
                     </button>
                   );
@@ -388,10 +481,20 @@ export default function HomePage() {
               </div>
             )}
           </div>
+
+          <div className="flex items-center justify-between border-t border-white/10 px-5 py-4 text-sm text-slate-400">
+            <span className="flex items-center gap-2">
+              <PresenceDot online size="md" />
+              Online
+            </span>
+            <Link href="/profile" className="rounded-full px-3 py-1.5 transition hover:bg-white/[0.06] hover:text-white">
+              Profile
+            </Link>
+          </div>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col bg-[#071018]">
-          <header className="border-b border-cyan-200/10 bg-[#0b1720]/80 px-6 py-4 shadow-lg shadow-black/20 backdrop-blur-md">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#111216]">
+          <header className="border-b border-white/10 bg-[#15171c] px-5 py-4">
             {selectedChat ? (
               (() => {
                 const otherMembers = getOtherMembers(selectedChat, user?.id);
@@ -406,19 +509,20 @@ export default function HomePage() {
                 );
 
                 return (
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-center gap-3">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex min-w-0 items-center gap-4">
                       <div className="relative">
-                        <Avatar user={otherUser} label={title} />
-                        <span className="absolute bottom-0 right-0 rounded-full bg-[#0b1720] p-0.5">
-                          <PresenceDot online={hasOnlineMember} />
+                        <Avatar user={otherUser} label={title} size="md" />
+                        <span className="absolute bottom-0 right-0 rounded-full bg-[#15171c] p-1">
+                          <PresenceDot online={hasOnlineMember} size="md" />
                         </span>
                       </div>
                       <div className="min-w-0">
-                        <h1 className="truncate text-lg font-semibold">
+                        <h1 className="truncate text-xl font-bold text-white">
                           {title}
                         </h1>
-                        <p className="mt-1 truncate text-xs text-white/45">
+                        <p className="mt-1 flex items-center gap-2 truncate text-sm text-slate-400">
+                          {hasOnlineMember ? <span className="h-2 w-2 rounded-full bg-emerald-400" /> : null}
                           {presenceStatus}
                         </p>
                       </div>
@@ -426,7 +530,7 @@ export default function HomePage() {
 
                     <form
                       onSubmit={handleMessageSearch}
-                      className="flex items-center gap-2"
+                      className="flex min-w-0 items-center gap-2 xl:w-[420px]"
                     >
                       <input
                         value={messageSearchQuery}
@@ -434,21 +538,26 @@ export default function HomePage() {
                           setMessageSearchQuery(event.target.value)
                         }
                         placeholder="Search messages"
-                        className="min-w-0 flex-1 rounded-md border border-cyan-100/15 bg-white/[0.04] px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-cyan-400"
+                        className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#20232b] px-4 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
                       />
                       <button
                         type="submit"
                         disabled={messageSearchLoading}
-                        className="rounded-md border border-cyan-100/15 bg-white/[0.04] px-3 py-2 text-sm font-medium text-white/80 hover:bg-cyan-100/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Search messages"
+                        title="Search messages"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {messageSearchLoading ? "Searching" : "Search"}
+                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="11" cy="11" r="7" />
+                          <path d="m20 20-3.5-3.5" />
+                        </svg>
                       </button>
                     </form>
 
                     {(messageSearchError || messageSearchResults.length > 0) && (
-                      <div className="max-h-40 overflow-y-auto rounded-md border border-cyan-100/10 bg-slate-950/65">
+                      <div className="max-h-40 overflow-y-auto rounded-2xl border border-white/10 bg-[#20232b] xl:absolute xl:right-5 xl:top-20 xl:w-[420px]">
                         {messageSearchError ? (
-                          <p className="px-3 py-2 text-xs text-red-200">
+                          <p className="px-4 py-3 text-xs text-red-200">
                             {messageSearchError}
                           </p>
                         ) : (
@@ -457,7 +566,7 @@ export default function HomePage() {
                               key={message.id}
                               type="button"
                               onClick={() => setHighlightedMessageId(message.id)}
-                              className="block w-full border-b border-white/5 px-3 py-2 text-left last:border-0 hover:bg-cyan-100/[0.06]"
+                              className="block w-full border-b border-white/5 px-4 py-3 text-left last:border-0 hover:bg-white/[0.05]"
                             >
                               <span className="block truncate text-sm text-white/80">
                                 {message.text ?? "Message"}
@@ -475,10 +584,10 @@ export default function HomePage() {
               })()
             ) : (
               <>
-                <h1 className="truncate text-lg font-semibold">
+                <h1 className="truncate text-xl font-bold">
                   Select a conversation
                 </h1>
-                <p className="mt-1 truncate text-xs text-white/45">
+                <p className="mt-1 truncate text-sm text-slate-400">
                   Create or choose a chat
                 </p>
               </>
@@ -486,7 +595,7 @@ export default function HomePage() {
           </header>
 
           {error && (
-            <div className="mx-6 mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            <div className="mx-5 mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
               {error}
             </div>
           )}
@@ -495,14 +604,15 @@ export default function HomePage() {
             <MessageThread
               chatId={selectedChatId}
               currentUserId={user.id}
+              chat={selectedChat}
               highlightedMessageId={highlightedMessageId}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center p-6">
               <div className="max-w-md text-center">
-                <h2 className="text-xl font-semibold">Ready for chats</h2>
+                <h2 className="text-xl font-bold">Ready for chats</h2>
 
-                <p className="mt-2 text-sm leading-6 text-white/55">
+                <p className="mt-2 text-sm leading-6 text-slate-400">
                   Create a direct chat from the sidebar using another signed-in
                   user&apos;s phone number.
                 </p>
@@ -510,6 +620,7 @@ export default function HomePage() {
             </div>
           )}
         </section>
+        </div>
       </main>
     </ProtectedRoute>
   );

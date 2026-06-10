@@ -49,15 +49,18 @@ export default function ProfilePage() {
 
   return (
     <ProtectedRoute>
-      <main className="min-h-screen bg-zinc-950 text-zinc-50">
-        <div className="mx-auto max-w-2xl px-6 py-8">
-          <Link href="/" className="text-sm text-emerald-400 hover:text-emerald-300">
+      <main className="min-h-screen bg-[#0f1013] p-0 text-zinc-50 md:p-6">
+        <div className="mx-auto min-h-[calc(100vh-3rem)] max-w-3xl border border-white/10 bg-[#17191f] px-5 py-6 shadow-2xl shadow-black/40 md:rounded-3xl md:px-8">
+          <Link
+            href="/"
+            className="inline-flex items-center rounded-full bg-[#20232b] px-4 py-2 text-sm font-semibold text-emerald-400 transition hover:bg-white/[0.08] hover:text-emerald-300"
+          >
             Back to chats
           </Link>
 
-          <header className="mt-6 border-b border-white/10 pb-6">
+          <header className="mt-8 border-b border-white/10 pb-8">
             <div className="flex items-center gap-4">
-              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-700 text-2xl font-semibold">
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-emerald-500 to-slate-700 text-3xl font-bold ring-1 ring-white/10">
                 {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
@@ -66,29 +69,29 @@ export default function ProfilePage() {
                 )}
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-2xl font-semibold">Profile</h1>
-                <p className="mt-1 truncate text-sm text-white/55">
+                <h1 className="truncate text-3xl font-bold">Profile</h1>
+                <p className="mt-2 truncate text-sm text-slate-400">
                   {user?.email ?? user?.phoneE164 ?? user?.id}
                 </p>
               </div>
             </div>
           </header>
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
             <div>
-              <label htmlFor="displayName" className="mb-2 block text-sm text-white/70">
+              <label htmlFor="displayName" className="mb-2 block text-sm font-semibold text-slate-300">
                 Display name
               </label>
               <input
                 id="displayName"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
-                className="w-full rounded-md border border-white/15 bg-transparent px-3 py-3 text-sm outline-none focus:border-emerald-500"
+                className="w-full rounded-2xl border border-white/10 bg-[#20232b] px-4 py-3 text-sm outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
               />
             </div>
 
             <div>
-              <label htmlFor="phone" className="mb-2 block text-sm text-white/70">
+              <label htmlFor="phone" className="mb-2 block text-sm font-semibold text-slate-300">
                 Phone number
               </label>
               <input
@@ -96,15 +99,15 @@ export default function ProfilePage() {
                 value={phoneE164}
                 onChange={(event) => setPhoneE164(event.target.value)}
                 placeholder="+917999106835"
-                className="w-full rounded-md border border-white/15 bg-transparent px-3 py-3 text-sm outline-none placeholder:text-white/30 focus:border-emerald-500"
+                className="w-full rounded-2xl border border-white/10 bg-[#20232b] px-4 py-3 text-sm outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
               />
-              <p className="mt-2 text-xs text-white/45">
+              <p className="mt-2 text-xs text-slate-500">
                 Use E.164 format with country code. This is how other users find you.
               </p>
             </div>
 
             <div>
-              <label htmlFor="avatar" className="mb-2 block text-sm text-white/70">
+              <label htmlFor="avatar" className="mb-2 block text-sm font-semibold text-slate-300">
                 Avatar URL
               </label>
               <input
@@ -112,18 +115,18 @@ export default function ProfilePage() {
                 value={avatarUrl}
                 onChange={(event) => setAvatarUrl(event.target.value)}
                 placeholder="https://..."
-                className="w-full rounded-md border border-white/15 bg-transparent px-3 py-3 text-sm outline-none placeholder:text-white/30 focus:border-emerald-500"
+                className="w-full rounded-2xl border border-white/10 bg-[#20232b] px-4 py-3 text-sm outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
               />
             </div>
 
             {error ? (
-              <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                 {error}
               </p>
             ) : null}
 
             {message ? (
-              <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+              <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
                 {message}
               </p>
             ) : null}
@@ -131,7 +134,7 @@ export default function ProfilePage() {
             <button
               type="submit"
               disabled={saving}
-              className="w-full rounded-md bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? "Saving..." : "Save profile"}
             </button>
