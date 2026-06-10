@@ -7,6 +7,7 @@ import { ChatModule } from "./modules/chat/chat.module.js";
 import { MessageModule } from "./modules/message/message.module.js";
 import { SocketModule } from "./modules/realtime/socket.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
+import { MediaModule } from "./modules/media/media.module.js";
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { HealthModule } from "./modules/health/health.module.js";
     UserModule,
     ChatModule,
     MessageModule,
+    MediaModule,
     SocketModule,
     HealthModule,
   ],

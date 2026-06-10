@@ -20,7 +20,17 @@ export interface MessageDto {
   senderId: string;
   clientMessageId: string;
   contentType: "text" | "attachment";
-  text: string | null;
+  text?: string | null;
+  attachments?: {
+    id: string;
+    url: string;
+    cloudinaryPublicId: string;
+    resourceType: "image" | "video" | "raw";
+    mimeType: string;
+    bytes: number;
+    width?: number;
+    height?: number;
+  }[];
   receiptStatus?: "sent" | "delivered" | "seen";
   createdAt: string;
 }
@@ -39,6 +49,29 @@ export async function fetchMessages(
 
   const body = await res.json();
   // Backend returns { data: MessageDto[], nextCursor: string | null }
+  return { messages: body.data, nextCursor: body.nextCursor };
+}
+
+export async function searchMessages(
+  chatId: string,
+  query: string,
+  cursor?: string,
+  limit = 20
+): Promise<{ messages: MessageDto[]; nextCursor: string | null }> {
+  const headers = await getAuthHeaders();
+  const params = new URLSearchParams({
+    chatId,
+    q: query,
+    limit: String(limit),
+  });
+  if (cursor) params.set("cursor", cursor);
+
+  const res = await fetch(`${API_BASE}/messages/search?${params}`, {
+    headers,
+  });
+  if (!res.ok) throw new Error(`Failed to search messages: ${res.status}`);
+
+  const body = await res.json();
   return { messages: body.data, nextCursor: body.nextCursor };
 }
 
@@ -65,6 +98,32 @@ export async function sendMessage(
 
   const body = await res.json();
   // Backend returns { data: MessageDto }
+  return body.data;
+}
+
+export async function sendAttachmentMessage(
+  chatId: string,
+  attachmentIds: string[],
+  text?: string
+): Promise<MessageDto> {
+  const headers = await getAuthHeaders();
+
+  const payload = {
+    chatId,
+    contentType: "attachment",
+    attachmentIds,
+    ...(text?.trim() ? { text: text.trim() } : {}),
+    clientMessageId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  };
+
+  const res = await fetch(`${API_BASE}/messages`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to send attachment: ${res.status}`);
+
+  const body = await res.json();
   return body.data;
 }
 

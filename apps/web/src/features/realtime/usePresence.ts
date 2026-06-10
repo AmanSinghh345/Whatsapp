@@ -1,51 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { getSocket } from "./socket.client";
-
-interface PresenceStatePayload {
-  userId: string;
-  state: "online" | "offline";
-  updatedAt: string;
-}
+import type { PresenceStatePayload } from "@chat/shared";
+import { usePresenceStore } from "./presence.store";
 
 export function usePresence(userIds: string[]) {
-  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const presenceByUserId = usePresenceStore((state) => state.presenceByUserId);
+  const setPresence = usePresenceStore((state) => state.setPresence);
+  const setManyPresence = usePresenceStore((state) => state.setManyPresence);
 
   useEffect(() => {
     if (!userIds.length) return;
     let active = true;
+    let cleanup: (() => void) | undefined;
 
     getSocket().then((socket) => {
       if (!active) return;
 
-      // Query current presence state on mount
       socket.emit("presence:query", { userIds });
 
-      // Handle query response
       const onPresenceState = (data: PresenceStatePayload[]) => {
-        setOnlineUsers((prev) => {
-          const next = new Set(prev);
-          data.forEach((p) => {
-            if (p.state === "online") next.add(p.userId);
-            else next.delete(p.userId);
-          });
-          return next;
-        });
+        setManyPresence(data);
       };
 
-      // Handle live presence changes
       const onOnline = (data: PresenceStatePayload) => {
         if (userIds.includes(data.userId)) {
-          setOnlineUsers((prev) => new Set(prev).add(data.userId));
+          setPresence(data);
         }
       };
 
       const onOffline = (data: PresenceStatePayload) => {
         if (userIds.includes(data.userId)) {
-          setOnlineUsers((prev) => {
-            const next = new Set(prev);
-            next.delete(data.userId);
-            return next;
-          });
+          setPresence(data);
         }
       };
 
@@ -53,17 +38,21 @@ export function usePresence(userIds: string[]) {
       socket.on("presence:online", onOnline);
       socket.on("presence:offline", onOffline);
 
-      return () => {
+      cleanup = () => {
         socket.off("presence:state", onPresenceState);
         socket.off("presence:online", onOnline);
         socket.off("presence:offline", onOffline);
       };
     });
 
-    return () => { active = false; };
-  }, [userIds.join(",")]);
+    return () => {
+      active = false;
+      cleanup?.();
+    };
+  }, [setManyPresence, setPresence, userIds.join(",")]);
 
   return {
-    isOnline: (userId: string) => onlineUsers.has(userId),
+    getPresence: (userId: string) => presenceByUserId[userId],
+    isOnline: (userId: string) => presenceByUserId[userId]?.state === "online",
   };
 }

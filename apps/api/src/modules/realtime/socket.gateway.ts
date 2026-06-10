@@ -22,6 +22,7 @@ import type {
   SendMessageRequestDto,
   UpsertReceiptDto,
 } from "@chat/shared";
+import { PresenceService } from "./presence.service.js";
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -61,16 +62,16 @@ export class SocketGateway
 
   private readonly logger = new Logger(SocketGateway.name);
 
-  // DB userId -> socket ids
-  private userConnections = new Map<string, Set<string>>();
-
   // chatId -> DB userId -> timestamp
   private typingState = new Map<string, Map<string, number>>();
 
   private readonly TYPING_TIMEOUT = 3000;
   private messageSocketService?: any;
 
-  constructor(private readonly socketAuthGuard: SocketAuthGuard) {}
+  constructor(
+    private readonly socketAuthGuard: SocketAuthGuard,
+    private readonly presenceService: PresenceService,
+  ) {}
 
   setMessageSocketService(service: any): void {
     this.messageSocketService = service;
@@ -105,23 +106,21 @@ export class SocketGateway
     const userId = socket.data.userId;
     const socketId = socket.id;
 
-    if (!this.userConnections.has(userId)) {
-      this.userConnections.set(userId, new Set());
-    }
-
-    this.userConnections.get(userId)!.add(socketId);
-
     this.logger.log(
       `Client connected: ${socketId} (userId: ${userId}, firebaseUid: ${firebaseUid})`,
     );
 
     socket.join(`user:${userId}`);
 
-    this.server.emit(SocketEvents.presenceOnline, {
-      userId,
-      state: "online",
-      updatedAt: new Date().toISOString(),
-    } as PresenceStatePayload);
+    const presence = await this.presenceService.markOnline(userId, socketId);
+
+    if (presence.becameOnline) {
+      await this.emitPresenceToAudience(
+        userId,
+        SocketEvents.presenceOnline,
+        presence.payload,
+      );
+    }
   }
 
   async handleDisconnect(
@@ -131,28 +130,21 @@ export class SocketGateway
     const userId = socket.data.userId;
     const socketId = socket.id;
 
-    const userSockets = this.userConnections.get(userId);
+    const presence = await this.presenceService.markOffline(userId, socketId);
 
-    if (userSockets) {
-      userSockets.delete(socketId);
+    if (presence.becameOffline) {
+      await this.emitPresenceToAudience(
+        userId,
+        SocketEvents.presenceOffline,
+        presence.payload,
+      );
 
-      if (userSockets.size === 0) {
-        this.userConnections.delete(userId);
+      for (const [chatId, typingMap] of this.typingState.entries()) {
+        if (typingMap.has(userId)) {
+          typingMap.delete(userId);
 
-        this.server.emit(SocketEvents.presenceOffline, {
-          userId,
-          state: "offline",
-          lastSeenAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        } as PresenceStatePayload);
-
-        for (const [chatId, typingMap] of this.typingState.entries()) {
-          if (typingMap.has(userId)) {
-            typingMap.delete(userId);
-
-            if (typingMap.size === 0) {
-              this.typingState.delete(chatId);
-            }
+          if (typingMap.size === 0) {
+            this.typingState.delete(chatId);
           }
         }
       }
@@ -249,18 +241,14 @@ export class SocketGateway
   }
 
   @SubscribeMessage(SocketEvents.presenceQuery)
-  handlePresenceQuery(
+  async handlePresenceQuery(
     @ConnectedSocket() socket: AuthenticatedSocket,
     @MessageBody() payload: PresenceQueryPayload,
-  ): void {
+  ): Promise<void> {
     const userId = socket.data.userId;
     const userIds = payload.userIds;
 
-    const presenceData = userIds.map((targetUserId) => ({
-      userId: targetUserId,
-      state: this.userConnections.has(targetUserId) ? "online" : "offline",
-      updatedAt: new Date().toISOString(),
-    })) as PresenceStatePayload[];
+    const presenceData = await this.presenceService.getPresence(userIds);
 
     socket.emit(SocketEvents.presenceState, presenceData);
 
@@ -330,11 +318,27 @@ export class SocketGateway
   }
 
   getUserSockets(userId: string): string[] {
-    return Array.from(this.userConnections.get(userId) || []);
+    return [];
   }
 
-  isUserOnline(userId: string): boolean {
-    const sockets = this.userConnections.get(userId);
-    return sockets ? sockets.size > 0 : false;
+  async isUserOnline(userId: string): Promise<boolean> {
+    const [presence] = await this.presenceService.getPresence([userId]);
+    return presence?.state === "online";
+  }
+
+  private async emitPresenceToAudience(
+    userId: string,
+    eventName: typeof SocketEvents.presenceOnline | typeof SocketEvents.presenceOffline,
+    payload: PresenceStatePayload,
+  ): Promise<void> {
+    const audience = await this.presenceService.getAudienceForUser(userId);
+
+    for (const audienceUserId of audience.userIds) {
+      this.server.to(`user:${audienceUserId}`).emit(eventName, payload);
+    }
+
+    for (const chatId of audience.chatIds) {
+      this.server.to(`chat:${chatId}`).emit(eventName, payload);
+    }
   }
 }

@@ -58,7 +58,7 @@ export type ServerToClientEvents = {
 
   "typing:state": (payload: TypingStatePayload) => void;
 
-  "presence:state": (payload: PresenceStatePayload) => void;
+  "presence:state": (payload: PresenceStatePayload[]) => void;
   "presence:online": (payload: PresenceStatePayload) => void;
   "presence:offline": (payload: PresenceStatePayload) => void;
 

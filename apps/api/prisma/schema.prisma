@@ -38,6 +38,7 @@ model User {
   email       String?  @unique
   displayName String
   avatarUrl   String?
+  lastSeenAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -100,7 +101,7 @@ model Message {
 
 model MessageAttachment {
   id                String   @id @default(uuid()) @db.Uuid
-  messageId         String   @db.Uuid
+  messageId         String?  @db.Uuid
   cloudinaryPublicId String
   url               String
   resourceType      String
@@ -110,7 +111,7 @@ model MessageAttachment {
   height            Int?
   createdAt         DateTime @default(now())
 
-  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId])
   @@index([cloudinaryPublicId])
@@ -154,4 +155,3 @@ model CallSession {
   @@index([receiverId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
 }
-

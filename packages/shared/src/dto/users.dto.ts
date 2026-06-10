@@ -7,6 +7,7 @@ export type UserDto = {
   phoneE164?: string;
   displayName: string;
   avatarUrl?: string;
+  lastSeenAt?: ISODateString;
   createdAt: ISODateString;
   updatedAt: ISODateString;
 };

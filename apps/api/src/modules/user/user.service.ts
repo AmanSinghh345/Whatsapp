@@ -123,6 +123,7 @@ export class UserService {
     phoneE164: string | null;
     displayName: string;
     avatarUrl: string | null;
+    lastSeenAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }): UserDto {
@@ -136,6 +137,9 @@ export class UserService {
 
     if (user.avatarUrl) {
       dto.avatarUrl = user.avatarUrl;
+    }
+    if (user.lastSeenAt) {
+      dto.lastSeenAt = user.lastSeenAt.toISOString();
     }
     if (user.email) {
       dto.email = user.email;

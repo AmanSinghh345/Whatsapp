@@ -35,6 +35,11 @@ export class MessageService {
     const { chatId, clientMessageId, contentType, text, attachmentIds } =
       request;
 
+    this.assertUuid(chatId, "chatId");
+    attachmentIds?.forEach((attachmentId) =>
+      this.assertUuid(attachmentId, "attachmentIds"),
+    );
+
     await this.chatService.getChat(chatId, userId);
 
     if (contentType === "text" && !text?.trim()) {
@@ -47,6 +52,22 @@ export class MessageService {
       throw new BadRequestException(
         "Attachment IDs are required for attachment messages",
       );
+    }
+
+    if (attachmentIds?.length) {
+      const stagedAttachments = await this.prisma.messageAttachment.findMany({
+        where: {
+          id: { in: attachmentIds },
+          messageId: null,
+        },
+        select: { id: true },
+      });
+
+      if (stagedAttachments.length !== attachmentIds.length) {
+        throw new BadRequestException(
+          "One or more attachments are missing or already used",
+        );
+      }
     }
 
     const existingMessage = await this.prisma.message.findFirst({
@@ -119,6 +140,9 @@ export class MessageService {
     cursor?: string,
     limit = 20,
   ): Promise<{ messages: MessageDto[]; nextCursor: string | null }> {
+    this.assertUuid(chatId, "chatId");
+    this.assertOptionalUuid(cursor, "cursor");
+
     await this.chatService.getChat(chatId, userId);
 
     const messages = await this.prisma.message.findMany({
@@ -142,6 +166,8 @@ export class MessageService {
   }
 
   async getMessage(messageId: string, userId: string): Promise<MessageDto> {
+    this.assertUuid(messageId, "messageId");
+
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       include: { attachments: true, receipts: true },
@@ -155,7 +181,54 @@ export class MessageService {
     return this.toMessageDto(message);
   }
 
+  async searchMessages(
+    chatId: string,
+    userId: string,
+    query: string,
+    cursor?: string,
+    limit = 20,
+  ): Promise<{ messages: MessageDto[]; nextCursor: string | null }> {
+    this.assertUuid(chatId, "chatId");
+    this.assertOptionalUuid(cursor, "cursor");
+
+    await this.chatService.getChat(chatId, userId);
+
+    const trimmedQuery = query.trim();
+
+    if (trimmedQuery.length < 2) {
+      throw new BadRequestException("Search query must be at least 2 characters");
+    }
+
+    const messages = await this.prisma.message.findMany({
+      where: {
+        chatId,
+        contentType: "text",
+        textContent: {
+          contains: trimmedQuery,
+          mode: "insensitive",
+        },
+      },
+      include: { attachments: true, receipts: true },
+      orderBy: { createdAt: "desc" },
+      take: limit + 1,
+      ...(cursor && { skip: 1, cursor: { id: cursor } }),
+    });
+
+    const hasMore = messages.length > limit;
+    const paginatedMessages = hasMore ? messages.slice(0, limit) : messages;
+    const nextCursor = hasMore
+      ? paginatedMessages[paginatedMessages.length - 1]!.id
+      : null;
+
+    return {
+      messages: paginatedMessages.map((message) => this.toMessageDto(message)),
+      nextCursor,
+    };
+  }
+
   async getMessageReceipts(messageId: string, userId: string) {
+    this.assertUuid(messageId, "messageId");
+
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       include: { receipts: { include: { recipient: true } } },
@@ -177,6 +250,9 @@ export class MessageService {
 
   async upsertReceipt(userId: string, request: UpsertReceiptDto): Promise<void> {
     const { messageId, chatId, status } = request;
+
+    this.assertUuid(messageId, "messageId");
+    this.assertUuid(chatId, "chatId");
 
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
@@ -220,6 +296,8 @@ export class MessageService {
   }
 
   async deleteMessage(messageId: string, userId: string): Promise<void> {
+    this.assertUuid(messageId, "messageId");
+
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
     });
@@ -243,7 +321,24 @@ export class MessageService {
   }
 
   async getMessageCount(chatId: string): Promise<number> {
+    this.assertUuid(chatId, "chatId");
+
     return this.prisma.message.count({ where: { chatId } });
+  }
+
+  private assertOptionalUuid(value: string | undefined, fieldName: string): void {
+    if (value !== undefined) {
+      this.assertUuid(value, fieldName);
+    }
+  }
+
+  private assertUuid(value: string, fieldName: string): void {
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!uuidRegex.test(value)) {
+      throw new BadRequestException(`${fieldName} must be a valid UUID`);
+    }
   }
 
   private toMessageDto(message: any): MessageDto {
@@ -258,6 +353,7 @@ export class MessageService {
         id: att.id,
         url: att.url,
         cloudinaryPublicId: att.cloudinaryPublicId,
+        resourceType: att.resourceType,
         mimeType: att.mimeType,
         bytes: att.bytes,
         width: att.width,

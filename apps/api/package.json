@@ -4,9 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "tsc -w",
-"start": "node dist/apps/api/src/main.js",
+    "start": "node dist/apps/api/src/main.js",
     "build": "nest build",
-    
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo \"(skip)\"",
     "format": "echo \"(skip)\"",
@@ -22,6 +21,7 @@
     "@nestjs/websockets": "^11.1.24",
     "@prisma/client": "^6.9.0",
     "firebase-admin": "^13.1.0",
+    "redis": "^4.7.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3"

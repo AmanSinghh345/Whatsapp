@@ -6,6 +6,10 @@ import type { ChatDto, ChatMemberDto, UserDto } from "@chat/shared";
 import { ProtectedRoute } from "../features/auth/components/protected-route";
 import { useAuthStore } from "../features/auth/store/auth.store";
 import { createDirectChat, fetchChats } from "../features/chat/api/chats.api";
+import {
+  searchMessages,
+  type MessageDto,
+} from "../features/chat/api/messages.api";
 import { MessageThread } from "../features/chat/components/MessageThread";
 import { usePresence } from "../features/realtime/usePresence";
 import { PresenceDot } from "../features/chat/components/PresenceDot";
@@ -36,6 +40,66 @@ function getChatSubtitle(chat: ChatDto, currentUserId?: string) {
   return otherUser?.phoneE164 ?? otherUser?.email ?? "Direct message";
 }
 
+type PresenceView = {
+  state: "online" | "offline";
+  lastSeenAt?: string;
+};
+
+function formatPresenceStatus(presence?: PresenceView, fallbackLastSeenAt?: string) {
+  if (presence?.state === "online") {
+    return "Online";
+  }
+
+  const lastSeenAt = presence?.lastSeenAt ?? fallbackLastSeenAt;
+
+  if (!lastSeenAt) {
+    return "Offline";
+  }
+
+  const lastSeenTime = new Date(lastSeenAt).getTime();
+
+  if (Number.isNaN(lastSeenTime)) {
+    return "Offline";
+  }
+
+  const minutesAgo = Math.max(
+    1,
+    Math.floor((Date.now() - lastSeenTime) / 60_000),
+  );
+
+  return `Last seen ${minutesAgo} min ago`;
+}
+
+function getChatPresenceStatus(
+  members: ChatMemberDto[],
+  getPresence: (userId: string) => PresenceView | undefined,
+) {
+  const onlineMember = members.find(
+    (member) => getPresence(member.userId)?.state === "online",
+  );
+
+  if (onlineMember) {
+    return "Online";
+  }
+
+  const memberWithLatestSeen = members
+    .map((member) => ({
+      presence: getPresence(member.userId),
+      lastSeenAt:
+        getPresence(member.userId)?.lastSeenAt ?? member.user?.lastSeenAt,
+    }))
+    .filter((item) => item.lastSeenAt)
+    .sort(
+      (a, b) =>
+        new Date(b.lastSeenAt!).getTime() - new Date(a.lastSeenAt!).getTime(),
+    )[0];
+
+  return formatPresenceStatus(
+    memberWithLatestSeen?.presence,
+    memberWithLatestSeen?.lastSeenAt,
+  );
+}
+
 function Avatar({ user, label }: { user?: UserDto | undefined; label: string }) {
   return (
     <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-700 text-sm font-semibold">
@@ -58,6 +122,13 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const [messageSearchResults, setMessageSearchResults] = useState<MessageDto[]>([]);
+  const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+  const [messageSearchError, setMessageSearchError] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(
+    null,
+  );
 
   const selectedChat = useMemo(
     () => chats.find((chat) => chat.id === selectedChatId) ?? null,
@@ -71,7 +142,7 @@ export default function HomePage() {
     return Array.from(new Set(ids));
   }, [chats, user?.id]);
 
-  const { isOnline } = usePresence(otherUserIds);
+  const { getPresence, isOnline } = usePresence(otherUserIds);
 
   async function loadChats() {
     setIsLoading(true);
@@ -130,11 +201,50 @@ export default function HomePage() {
     }
   }
 
+  async function handleMessageSearch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedChatId) {
+      return;
+    }
+
+    const trimmedQuery = messageSearchQuery.trim();
+
+    if (trimmedQuery.length < 2) {
+      setMessageSearchError("Enter at least 2 characters.");
+      setMessageSearchResults([]);
+      return;
+    }
+
+    setMessageSearchLoading(true);
+    setMessageSearchError(null);
+    setHighlightedMessageId(null);
+
+    try {
+      const result = await searchMessages(selectedChatId, trimmedQuery);
+      setMessageSearchResults(result.messages);
+    } catch (error) {
+      setMessageSearchError(
+        error instanceof Error ? error.message : "Failed to search messages.",
+      );
+      setMessageSearchResults([]);
+    } finally {
+      setMessageSearchLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (user) {
       void loadChats();
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    setMessageSearchQuery("");
+    setMessageSearchResults([]);
+    setMessageSearchError(null);
+    setHighlightedMessageId(null);
+  }, [selectedChatId]);
 
   return (
     <ProtectedRoute>
@@ -237,6 +347,10 @@ export default function HomePage() {
                   const hasOnlineMember = otherMemberIds.some((id) =>
                     isOnline(id),
                   );
+                  const presenceStatus = getChatPresenceStatus(
+                    otherMembers,
+                    getPresence,
+                  );
 
                   return (
                     <button
@@ -260,13 +374,13 @@ export default function HomePage() {
                             {title}
                           </span>
                           <span className="mt-1 block truncate text-xs text-white/45">
-                            {subtitle}
+                            {presenceStatus}
                           </span>
                         </div>
                       </div>
 
                       <span className="mt-2 block truncate pl-[52px] text-xs text-white/35">
-                        Updated {new Date(chat.updatedAt).toLocaleString()}
+                        {subtitle}
                       </span>
                     </button>
                   );
@@ -279,20 +393,86 @@ export default function HomePage() {
         <section className="flex min-w-0 flex-1 flex-col bg-[#071018]">
           <header className="border-b border-cyan-200/10 bg-[#0b1720]/80 px-6 py-4 shadow-lg shadow-black/20 backdrop-blur-md">
             {selectedChat ? (
-              <div className="flex items-center gap-3">
-                <Avatar
-                  user={getOtherMembers(selectedChat, user?.id)[0]?.user}
-                  label={getChatTitle(selectedChat, user?.id)}
-                />
-                <div className="min-w-0">
-                  <h1 className="truncate text-lg font-semibold">
-                    {getChatTitle(selectedChat, user?.id)}
-                  </h1>
-                  <p className="mt-1 truncate text-xs text-white/45">
-                    {getChatSubtitle(selectedChat, user?.id)}
-                  </p>
-                </div>
-              </div>
+              (() => {
+                const otherMembers = getOtherMembers(selectedChat, user?.id);
+                const otherUser = otherMembers[0]?.user;
+                const title = getChatTitle(selectedChat, user?.id);
+                const presenceStatus = getChatPresenceStatus(
+                  otherMembers,
+                  getPresence,
+                );
+                const hasOnlineMember = otherMembers.some((member) =>
+                  isOnline(member.userId),
+                );
+
+                return (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <Avatar user={otherUser} label={title} />
+                        <span className="absolute bottom-0 right-0 rounded-full bg-[#0b1720] p-0.5">
+                          <PresenceDot online={hasOnlineMember} />
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <h1 className="truncate text-lg font-semibold">
+                          {title}
+                        </h1>
+                        <p className="mt-1 truncate text-xs text-white/45">
+                          {presenceStatus}
+                        </p>
+                      </div>
+                    </div>
+
+                    <form
+                      onSubmit={handleMessageSearch}
+                      className="flex items-center gap-2"
+                    >
+                      <input
+                        value={messageSearchQuery}
+                        onChange={(event) =>
+                          setMessageSearchQuery(event.target.value)
+                        }
+                        placeholder="Search messages"
+                        className="min-w-0 flex-1 rounded-md border border-cyan-100/15 bg-white/[0.04] px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-cyan-400"
+                      />
+                      <button
+                        type="submit"
+                        disabled={messageSearchLoading}
+                        className="rounded-md border border-cyan-100/15 bg-white/[0.04] px-3 py-2 text-sm font-medium text-white/80 hover:bg-cyan-100/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {messageSearchLoading ? "Searching" : "Search"}
+                      </button>
+                    </form>
+
+                    {(messageSearchError || messageSearchResults.length > 0) && (
+                      <div className="max-h-40 overflow-y-auto rounded-md border border-cyan-100/10 bg-slate-950/65">
+                        {messageSearchError ? (
+                          <p className="px-3 py-2 text-xs text-red-200">
+                            {messageSearchError}
+                          </p>
+                        ) : (
+                          messageSearchResults.map((message) => (
+                            <button
+                              key={message.id}
+                              type="button"
+                              onClick={() => setHighlightedMessageId(message.id)}
+                              className="block w-full border-b border-white/5 px-3 py-2 text-left last:border-0 hover:bg-cyan-100/[0.06]"
+                            >
+                              <span className="block truncate text-sm text-white/80">
+                                {message.text ?? "Message"}
+                              </span>
+                              <span className="mt-1 block text-[11px] text-white/35">
+                                {new Date(message.createdAt).toLocaleString()}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
             ) : (
               <>
                 <h1 className="truncate text-lg font-semibold">
@@ -312,7 +492,11 @@ export default function HomePage() {
           )}
 
           {selectedChatId && user ? (
-            <MessageThread chatId={selectedChatId} currentUserId={user.id} />
+            <MessageThread
+              chatId={selectedChatId}
+              currentUserId={user.id}
+              highlightedMessageId={highlightedMessageId}
+            />
           ) : (
             <div className="flex flex-1 items-center justify-center p-6">
               <div className="max-w-md text-center">

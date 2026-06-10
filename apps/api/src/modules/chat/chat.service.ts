@@ -392,6 +392,7 @@ export class ChatService {
       ...(user.phoneE164 ? { phoneE164: user.phoneE164 } : {}),
       displayName: user.displayName,
       ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+      ...(user.lastSeenAt ? { lastSeenAt: user.lastSeenAt.toISOString() } : {}),
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString(),
     };

@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   fetchMessages,
+  sendAttachmentMessage,
   sendMessage,
   upsertMessageReceipt,
   MessageDto,
 } from "../api/messages.api";
+import { uploadChatMedia } from "../api/media.api";
 
 export function useMessages(chatId: string | null, currentUserId: string) {
   const [messages, setMessages] = useState<MessageDto[]>([]);
@@ -99,12 +101,34 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     [],
   );
 
+  const sendAttachment = useCallback(
+    async (file: File) => {
+      if (!chatId) return;
+      setSending(true);
+      setError(null);
+      try {
+        const asset = await uploadChatMedia(file);
+        const msg = await sendAttachmentMessage(chatId, [asset.id]);
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setSending(false);
+      }
+    },
+    [chatId],
+  );
+
   return {
     messages,
     loading,
     sending,
     error,
     send,
+    sendAttachment,
     appendMessage,
     updateReceiptStatus,
     bottomRef,

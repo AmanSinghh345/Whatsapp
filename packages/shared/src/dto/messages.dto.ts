@@ -6,6 +6,7 @@ export type MessageAttachmentDto = {
   id: Id;
   url: string;
   cloudinaryPublicId: string;
+  resourceType: "image" | "video" | "raw";
   mimeType: string;
   bytes: number;
   width?: number;
@@ -37,6 +38,18 @@ export type SendMessageRequestDto = {
   contentType: Exclude<MessageContentType, "system">;
   text?: string;
   attachmentIds?: Id[];
+};
+
+export type SearchMessagesRequestDto = {
+  chatId: Id;
+  q: string;
+  cursor?: Id;
+  limit?: number;
+};
+
+export type SearchMessagesResponseDto = {
+  data: MessageDto[];
+  nextCursor: Id | null;
 };
 
 export type MessageReceiptStatus = "delivered" | "seen";

@@ -1,5 +1,12 @@
 import { initializeApp, getApps, getApp, type FirebaseOptions } from "firebase/app";
-import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
+import {
+  browserLocalPersistence,
+  getAuth,
+  setPersistence,
+  type Auth,
+} from "firebase/auth";
+
+let authInstance: Auth | null = null;
 
 function getFirebaseConfig(): FirebaseOptions {
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
@@ -8,18 +15,27 @@ function getFirebaseConfig(): FirebaseOptions {
   const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
 
   if (!apiKey || !authDomain || !projectId || !appId) {
-    throw new Error("Missing Firebase web env vars. Check apps/web/.env.local");
+    throw new Error("Missing Firebase web env vars. Check apps/web/.env");
   }
 
-  return { apiKey, authDomain, projectId, appId };
+  return {
+    apiKey,
+    authDomain,
+    projectId,
+    appId,
+  };
 }
 
-export function getFirebaseAuth() {
+export function getFirebaseAuth(): Auth {
+  if (authInstance) {
+    return authInstance;
+  }
+
   const app = getApps().length > 0 ? getApp() : initializeApp(getFirebaseConfig());
   const auth = getAuth(app);
 
-  // Local persistence keeps users signed in across reloads.
   void setPersistence(auth, browserLocalPersistence);
+
+  authInstance = auth;
   return auth;
 }
-
