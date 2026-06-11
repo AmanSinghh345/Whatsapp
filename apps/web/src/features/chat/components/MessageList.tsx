@@ -15,8 +15,10 @@ interface MessageListProps {
   typingLabel?: string;
   onReact?: (messageId: string, emoji: MessageReactionEmoji) => void;
   onEdit?: (messageId: string, text: string) => void;
+  onDelete?: (messageId: string) => void;
   pendingReactionMessageIds?: Set<string>;
   editingMessageId?: string | null;
+  deletingMessageId?: string | null;
   highlightedMessageId?: string | null;
   bottomRef?: React.RefObject<HTMLDivElement | null>;
   messageRefs?: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
@@ -56,8 +58,10 @@ export function MessageList({
   typingLabel = "Someone is typing...",
   onReact,
   onEdit,
+  onDelete,
   pendingReactionMessageIds,
   editingMessageId = null,
+  deletingMessageId = null,
   highlightedMessageId = null,
   bottomRef,
   messageRefs,
@@ -108,8 +112,10 @@ export function MessageList({
                   currentUserId={currentUserId}
                   reactionPending={pendingReactionMessageIds?.has(message.id) ?? false}
                   editing={editingMessageId === message.id}
+                  deleting={deletingMessageId === message.id}
                   {...(onReact ? { onReact } : {})}
                   {...(onEdit ? { onEdit } : {})}
+                  {...(onDelete ? { onDelete } : {})}
                   {...(senderUser ? { senderUser } : {})}
                 />
               </div>

@@ -28,6 +28,10 @@ function shouldNotifyForChat(chatId: string, selectedChatId?: string | null) {
 }
 
 function getMessageBody(message: MessageDto) {
+  if (message.deletedAt) {
+    return "This message was deleted";
+  }
+
   if (message.contentType === "system") {
     return message.text ?? "New activity";
   }

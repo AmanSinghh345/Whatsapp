@@ -36,6 +36,7 @@ export interface MessageDto {
   createdAt: string;
   updatedAt: string;
   editedAt?: string;
+  deletedAt?: string;
 }
 
 export type MessageReactionEmoji = "👍" | "❤️" | "😂" | "😮" | "😢";
@@ -53,6 +54,11 @@ export interface MessageReactionUpdatedDto {
 }
 
 export interface MessageEditedDto {
+  chatId: string;
+  message: MessageDto;
+}
+
+export interface MessageDeletedDto {
   chatId: string;
   message: MessageDto;
 }
@@ -149,13 +155,16 @@ export async function sendAttachmentMessage(
   return body.data;
 }
 
-export async function deleteMessage(messageId: string): Promise<void> {
+export async function deleteMessage(messageId: string): Promise<MessageDto> {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/messages/${messageId}`, {
     method: "DELETE",
     headers,
   });
   if (!res.ok) throw new Error(`Failed to delete message: ${res.status}`);
+
+  const body = await res.json();
+  return body.data;
 }
 
 export async function editMessage(

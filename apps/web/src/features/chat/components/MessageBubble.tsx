@@ -16,8 +16,10 @@ interface Props {
   currentUserId: string;
   onReact?: (messageId: string, emoji: MessageReactionEmoji) => void;
   onEdit?: (messageId: string, text: string) => void;
+  onDelete?: (messageId: string) => void;
   reactionPending?: boolean;
   editing?: boolean;
+  deleting?: boolean;
 }
 
 export function MessageBubble({
@@ -30,8 +32,10 @@ export function MessageBubble({
   currentUserId,
   onReact,
   onEdit,
+  onDelete,
   reactionPending = false,
   editing = false,
+  deleting = false,
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(message.text ?? "");
@@ -58,7 +62,13 @@ export function MessageBubble({
   const canEdit =
     isOwn &&
     message.contentType === "text" &&
+    !message.deletedAt &&
     Boolean(onEdit) &&
+    !message.id.startsWith("demo-");
+  const canDelete =
+    isOwn &&
+    !message.deletedAt &&
+    Boolean(onDelete) &&
     !message.id.startsWith("demo-");
 
   useEffect(() => {
@@ -87,6 +97,14 @@ export function MessageBubble({
     setIsEditing(false);
   };
 
+  const deleteCurrentMessage = () => {
+    if (!window.confirm("Delete this message for everyone?")) {
+      return;
+    }
+
+    onDelete?.(message.id);
+  };
+
   if (message.contentType === "system") {
     return (
       <div
@@ -110,6 +128,63 @@ export function MessageBubble({
           </svg>
           <span className="min-w-0 break-words">{message.text}</span>
           <span className="shrink-0 text-slate-500">{time}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.deletedAt) {
+    return (
+      <div
+        className={[
+          "group/message flex",
+          groupedWithPrevious ? "mb-1" : "mb-5 mt-1",
+          isOwn ? "justify-end" : "justify-start",
+        ].join(" ")}
+      >
+        <div
+          className={`flex max-w-[min(86%,560px)] gap-3 ${
+            isOwn ? "flex-row-reverse" : ""
+          }`}
+        >
+          {!isOwn ? (
+            <div
+              className={`${groupedWithPrevious ? "invisible" : ""} mt-1 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-700 text-sm font-bold text-white ring-1 ring-white/10`}
+            >
+              {senderUser?.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={senderUser.avatarUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                avatarLabel
+              )}
+            </div>
+          ) : null}
+
+          <div className={`flex min-w-0 flex-col ${isOwn ? "items-end" : "items-start"}`}>
+            {!isOwn && !groupedWithPrevious && senderLabel ? (
+              <span className="mb-1.5 ml-1 text-xs font-bold text-cyan-400">
+                {senderLabel}
+              </span>
+            ) : null}
+            <div
+              className={`rounded-[22px] border border-dashed px-5 py-3 text-sm italic shadow-lg ${
+                isOwn
+                  ? "rounded-br-md border-emerald-200/30 bg-emerald-500/20 text-emerald-50/85"
+                  : "rounded-bl-md border-white/10 bg-[#23262e]/70 text-slate-300"
+              } ${highlighted ? "ring-2 ring-amber-300/80" : ""}`}
+            >
+              This message was deleted
+            </div>
+            {!groupedWithPrevious ? (
+              <span className="mt-2 flex items-center gap-1 px-1 text-[11px] text-slate-400">
+                {time}
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
     );
@@ -304,6 +379,33 @@ export function MessageBubble({
                   >
                     <path d="M12 20h9" />
                     <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
+              ) : null}
+
+              {canDelete ? (
+                <button
+                  type="button"
+                  onClick={deleteCurrentMessage}
+                  disabled={deleting}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-[#20232b] text-slate-400 shadow-sm transition hover:border-red-300/30 hover:bg-red-500/15 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Delete message"
+                  aria-label="Delete message"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4h8v2" />
+                    <path d="M19 6l-1 14H6L5 6" />
+                    <path d="M10 11v5" />
+                    <path d="M14 11v5" />
                   </svg>
                 </button>
               ) : null}

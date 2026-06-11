@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   fetchMessages,
+  deleteMessage,
   editMessage,
   sendAttachmentMessage,
   sendMessage,
@@ -17,6 +18,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [pendingReactionMessageIds, setPendingReactionMessageIds] = useState<
     Set<string>
   >(() => new Set());
@@ -199,6 +201,10 @@ export function useMessages(chatId: string | null, currentUserId: string) {
       }
 
       const currentMessage = messages.find((message) => message.id === messageId);
+      if (currentMessage?.deletedAt) {
+        return;
+      }
+
       const previousReactions = currentMessage?.reactions ?? [];
       const optimisticReactions = getOptimisticReactions(
         previousReactions,
@@ -281,11 +287,29 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     [updateMessage],
   );
 
+  const remove = useCallback(
+    async (messageId: string) => {
+      setDeletingMessageId(messageId);
+      setError(null);
+
+      try {
+        const deleted = await deleteMessage(messageId);
+        updateMessage(deleted);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setDeletingMessageId(null);
+      }
+    },
+    [updateMessage],
+  );
+
   return {
     messages,
     loading,
     sending,
     editingMessageId,
+    deletingMessageId,
     error,
     send,
     sendAttachment,
@@ -295,6 +319,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     updateMessageReactions,
     reactToMessage,
     edit,
+    deleteMessage: remove,
     pendingReactionMessageIds,
     bottomRef,
   };

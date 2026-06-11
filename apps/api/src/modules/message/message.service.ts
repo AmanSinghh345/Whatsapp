@@ -321,11 +321,15 @@ export class MessageService {
 
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
-      select: { id: true, chatId: true },
+      select: { id: true, chatId: true, deletedAt: true },
     });
 
     if (!message) {
       throw new NotFoundException(`Message ${messageId} not found`);
+    }
+
+    if (message.deletedAt) {
+      throw new BadRequestException("Cannot react to a deleted message");
     }
 
     await this.chatService.getChat(message.chatId, userId);
@@ -403,6 +407,10 @@ export class MessageService {
       throw new ForbiddenException("You can only edit your own messages");
     }
 
+    if (message.deletedAt) {
+      throw new BadRequestException("Cannot edit a deleted message");
+    }
+
     if (message.contentType !== "text") {
       throw new BadRequestException("Only text messages can be edited");
     }
@@ -426,15 +434,29 @@ export class MessageService {
     return dto;
   }
 
-  async deleteMessage(messageId: string, userId: string): Promise<void> {
+  async deleteMessage(messageId: string, userId: string): Promise<MessageDto> {
     this.assertUuid(messageId, "messageId");
 
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
+      include: { attachments: true, receipts: true, reactions: true },
     });
 
     if (!message) {
       throw new NotFoundException(`Message ${messageId} not found`);
+    }
+
+    if (message.deletedAt) {
+      const dto = this.toMessageDto(message);
+      this.socketGateway.broadcastMessageToChat(
+        message.chatId,
+        SocketEvents.messageDeleted,
+        {
+          chatId: message.chatId,
+          message: dto,
+        },
+      );
+      return dto;
     }
 
     if (message.senderId !== userId) {
@@ -447,8 +469,28 @@ export class MessageService {
       }
     }
 
-    await this.prisma.message.delete({ where: { id: messageId } });
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: {
+        deletedAt: new Date(),
+        textContent: null,
+        reactions: { deleteMany: {} },
+      },
+      include: { attachments: true, receipts: true, reactions: true },
+    });
+    const dto = this.toMessageDto(updated);
+
+    this.socketGateway.broadcastMessageToChat(
+      updated.chatId,
+      SocketEvents.messageDeleted,
+      {
+        chatId: updated.chatId,
+        message: dto,
+      },
+    );
+
     this.logger.log(`Message deleted: ${messageId}`);
+    return dto;
   }
 
   async getMessageCount(chatId: string): Promise<number> {
@@ -521,17 +563,19 @@ export class MessageService {
       senderId: message.senderId,
       clientMessageId: message.clientMessageId,
       contentType: message.contentType,
-      text: message.textContent,
-      attachments: message.attachments?.map((att: any) => ({
-        id: att.id,
-        url: att.url,
-        cloudinaryPublicId: att.cloudinaryPublicId,
-        resourceType: att.resourceType,
-        mimeType: att.mimeType,
-        bytes: att.bytes,
-        width: att.width,
-        height: att.height,
-      })),
+      text: message.deletedAt ? null : message.textContent,
+      attachments: message.deletedAt
+        ? []
+        : message.attachments?.map((att: any) => ({
+            id: att.id,
+            url: att.url,
+            cloudinaryPublicId: att.cloudinaryPublicId,
+            resourceType: att.resourceType,
+            mimeType: att.mimeType,
+            bytes: att.bytes,
+            width: att.width,
+            height: att.height,
+          })),
       receiptStatus: this.getReceiptStatus(message.receipts ?? []),
       receipts: message.receipts?.map((receipt: any) => ({
         recipientId: receipt.recipientId,
@@ -540,11 +584,17 @@ export class MessageService {
           : {}),
         ...(receipt.seenAt ? { seenAt: receipt.seenAt.toISOString() } : {}),
       })),
-      reactions: this.toReactionSummaries(message.reactions ?? []),
+      reactions: message.deletedAt
+        ? []
+        : this.toReactionSummaries(message.reactions ?? []),
       createdAt: message.createdAt.toISOString(),
       updatedAt: message.updatedAt.toISOString(),
-      ...(message.updatedAt.getTime() !== message.createdAt.getTime()
+      ...(message.updatedAt.getTime() !== message.createdAt.getTime() &&
+      !message.deletedAt
         ? { editedAt: message.updatedAt.toISOString() }
+        : {}),
+      ...(message.deletedAt
+        ? { deletedAt: message.deletedAt.toISOString() }
         : {}),
     };
   }

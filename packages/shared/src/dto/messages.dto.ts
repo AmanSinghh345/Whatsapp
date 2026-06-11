@@ -29,6 +29,7 @@ export type MessageDto = {
   createdAt: ISODateString;
   updatedAt: ISODateString;
   editedAt?: ISODateString;
+  deletedAt?: ISODateString;
 };
 
 export type MessageReceiptDto = {
@@ -87,6 +88,11 @@ export type EditMessageRequestDto = {
 };
 
 export type MessageEditedDto = {
+  chatId: Id;
+  message: MessageDto;
+};
+
+export type MessageDeletedDto = {
   chatId: Id;
   message: MessageDto;
 };

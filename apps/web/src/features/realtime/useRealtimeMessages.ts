@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getSocket } from "./socket.client";
 import type {
+  MessageDeletedDto,
   MessageEditedDto,
   MessageDto,
   MessageReactionUpdatedDto,
@@ -12,6 +13,7 @@ interface Options {
   currentUserId: string;
   onMessage: (msg: MessageDto) => void;
   onMessageEdited?: (msg: MessageDto) => void;
+  onMessageDeleted?: (msg: MessageDto) => void;
   onReceiptUpdate: (messageId: string, status: "delivered" | "seen") => void;
   onReactionUpdate: (
     messageId: string,
@@ -30,15 +32,18 @@ export function useRealtimeMessages({
   currentUserId,
   onMessage,
   onMessageEdited,
+  onMessageDeleted,
   onReceiptUpdate,
   onReactionUpdate,
 }: Options) {
   const onMessageRef = useRef(onMessage);
   const onMessageEditedRef = useRef(onMessageEdited);
+  const onMessageDeletedRef = useRef(onMessageDeleted);
   const onReceiptUpdateRef = useRef(onReceiptUpdate);
   const onReactionUpdateRef = useRef(onReactionUpdate);
   onMessageRef.current = onMessage;
   onMessageEditedRef.current = onMessageEdited;
+  onMessageDeletedRef.current = onMessageDeleted;
   onReceiptUpdateRef.current = onReceiptUpdate;
   onReactionUpdateRef.current = onReactionUpdate;
 
@@ -79,6 +84,11 @@ export function useRealtimeMessages({
           onMessageEditedRef.current?.(payload.message);
         };
 
+        const deleteHandler = (payload: MessageDeletedDto) => {
+          if (payload.chatId !== chatId) return;
+          onMessageDeletedRef.current?.(payload.message);
+        };
+
         const reactionHandler = (payload: MessageReactionUpdatedDto) => {
           console.log("[reaction] event received", payload);
           if (payload.chatId !== chatId) return;
@@ -87,6 +97,7 @@ export function useRealtimeMessages({
 
         socket.on("message:new", handler);
         socket.on("message:edited", editHandler);
+        socket.on("message:deleted", deleteHandler);
         socket.on("message:receipt:updated", receiptHandler);
         socket.on("message:reactionUpdated", reactionHandler);
 
@@ -95,6 +106,7 @@ export function useRealtimeMessages({
           socket.off("connect", joinActiveChat);
           socket.off("message:new", handler);
           socket.off("message:edited", editHandler);
+          socket.off("message:deleted", deleteHandler);
           socket.off("message:receipt:updated", receiptHandler);
           socket.off("message:reactionUpdated", reactionHandler);
         };

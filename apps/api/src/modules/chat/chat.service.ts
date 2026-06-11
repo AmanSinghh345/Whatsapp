@@ -151,6 +151,7 @@ export class ChatService {
           select: {
             contentType: true,
             textContent: true,
+            deletedAt: true,
             createdAt: true,
           },
         },
@@ -429,7 +430,12 @@ export class ChatService {
   private toMessagePreview(message: {
     contentType: string;
     textContent?: string | null;
+    deletedAt?: Date | null;
   }): string {
+    if (message.deletedAt) {
+      return "This message was deleted";
+    }
+
     if (message.contentType === "system") {
       return message.textContent ?? "Call activity";
     }

@@ -2,6 +2,7 @@ export const SocketEvents = {
   messageSend: "message:send",
   messageNew: "message:new",
   messageEdited: "message:edited",
+  messageDeleted: "message:deleted",
   messageReceiptUpsert: "message:receipt:upsert",
   messageReceiptUpdated: "message:receipt:updated",
   messageReactionUpdated: "message:reactionUpdated",

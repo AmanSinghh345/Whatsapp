@@ -13,6 +13,10 @@ type UseLiveChatPreviewsOptions<TChat extends ChatDto> = {
 };
 
 function getMessagePreview(message: MessageDto) {
+  if (message.deletedAt) {
+    return "This message was deleted";
+  }
+
   if (message.contentType === "system") {
     return message.text ?? "Call activity";
   }
@@ -108,11 +112,31 @@ export function useLiveChatPreviews<TChat extends ChatDto>({
         );
       };
 
+      const onMessageDeleted = (payload: { chatId: string; message: MessageDto }) => {
+        setChats((current) =>
+          current.map((chat) => {
+            if (
+              chat.id !== payload.chatId ||
+              chat.lastMessageAt !== payload.message.createdAt
+            ) {
+              return chat;
+            }
+
+            return {
+              ...chat,
+              lastMessagePreview: getMessagePreview(payload.message),
+            };
+          }),
+        );
+      };
+
       socket.on("message:new", onMessage);
       socket.on("message:edited", onMessageEdited);
+      socket.on("message:deleted", onMessageDeleted);
       cleanup = () => {
         socket.off("message:new", onMessage);
         socket.off("message:edited", onMessageEdited);
+        socket.off("message:deleted", onMessageDeleted);
       };
     });
 

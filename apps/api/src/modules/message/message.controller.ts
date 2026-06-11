@@ -209,12 +209,15 @@ export class MessageController {
    * DELETE /api/messages/:messageId
    */
   @Delete(":messageId")
-  @HttpCode(204)
   async deleteMessage(
     @GetUser() user: AuthenticatedRequestUser,
     @Param("messageId", new ParseUUIDPipe()) messageId: string,
-  ): Promise<void> {
-    await this.messageService.deleteMessage(messageId, user.id ?? user.firebaseUid);
+  ): Promise<{ data: MessageDto }> {
+    const message = await this.messageService.deleteMessage(
+      messageId,
+      user.id ?? user.firebaseUid,
+    );
+    return { data: message };
   }
 
   private parseLimit(

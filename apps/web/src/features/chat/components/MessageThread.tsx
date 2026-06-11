@@ -28,6 +28,7 @@ export function MessageThread({
     loading,
     sending,
     editingMessageId,
+    deletingMessageId,
     error,
     send,
     sendAttachment,
@@ -37,6 +38,7 @@ export function MessageThread({
     updateMessageReactions,
     reactToMessage,
     edit,
+    deleteMessage,
     pendingReactionMessageIds,
     bottomRef,
   } = useMessages(chatId, currentUserId);
@@ -51,6 +53,7 @@ export function MessageThread({
     currentUserId,
     onMessage: handleIncoming,
     onMessageEdited: updateMessage,
+    onMessageDeleted: updateMessage,
     onReceiptUpdate: updateReceiptStatus,
     onReactionUpdate: updateMessageReactions,
   });
@@ -90,8 +93,10 @@ export function MessageThread({
         typingLabel={typingLabel}
         onReact={reactToMessage}
         onEdit={edit}
+        onDelete={deleteMessage}
         pendingReactionMessageIds={pendingReactionMessageIds}
         editingMessageId={editingMessageId}
+        deletingMessageId={deletingMessageId}
         highlightedMessageId={highlightedMessageId}
         bottomRef={bottomRef}
         messageRefs={messageRefs}
