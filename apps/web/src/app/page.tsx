@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatDto, ChatMemberDto, UserDto } from "@chat/shared";
 import { ProtectedRoute } from "../features/auth/components/protected-route";
 import { useAuthStore } from "../features/auth/store/auth.store";
@@ -10,11 +10,13 @@ import {
   searchMessages,
   type MessageDto,
 } from "../features/chat/api/messages.api";
+import { CallPanel } from "../features/chat/components/CallPanel";
 import { MessageThread } from "../features/chat/components/MessageThread";
 import { usePresence } from "../features/realtime/usePresence";
 import { getSocket } from "../features/realtime/socket.client";
 import { useGlobalTypingListener } from "../features/realtime/useTypingIndicator";
 import { useTypingStore } from "../features/realtime/typing.store";
+import { useWebRtcCall } from "../features/realtime/useWebRtcCall";
 import { PresenceDot } from "../features/chat/components/PresenceDot";
 import { searchUserByPhone } from "../features/user/api/users.api";
 
@@ -129,6 +131,196 @@ function Avatar({
   );
 }
 
+function VideoCallIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+    >
+      <path d="m16 13 5 3V8l-5 3" />
+      <rect x="3" y="6" width="13" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function ActiveChatPane({
+  chat,
+  user,
+  getPresence,
+  isOnline,
+  messageSearchQuery,
+  messageSearchResults,
+  messageSearchLoading,
+  messageSearchError,
+  highlightedMessageId,
+  onMessageSearchChange,
+  onMessageSearch,
+  onHighlightMessage,
+}: {
+  chat: ChatDto;
+  user: UserDto;
+  getPresence: (userId: string) => PresenceView | undefined;
+  isOnline: (userId: string) => boolean;
+  messageSearchQuery: string;
+  messageSearchResults: MessageDto[];
+  messageSearchLoading: boolean;
+  messageSearchError: string | null;
+  highlightedMessageId: string | null;
+  onMessageSearchChange: (value: string) => void;
+  onMessageSearch: (event: FormEvent<HTMLFormElement>) => void;
+  onHighlightMessage: (messageId: string) => void;
+}) {
+  const otherMembers = getOtherMembers(chat, user.id);
+  const otherUser = otherMembers[0]?.user;
+  const title = getChatTitle(chat, user.id);
+  const presenceStatus = getChatPresenceStatus(otherMembers, getPresence);
+  const hasOnlineMember = otherMembers.some((member) => isOnline(member.userId));
+  const callPeer =
+    chat.type === "direct" && otherMembers.length === 1
+      ? otherMembers[0]
+      : undefined;
+  const call = useWebRtcCall({
+    chat,
+    currentUserId: user.id,
+    ...(callPeer ? { peerUserId: callPeer.userId } : {}),
+  });
+  const activeCallPeer =
+    otherMembers.find((member) => member.userId === call.peerUserId) ?? callPeer;
+  const activeCallPeerName =
+    activeCallPeer?.user?.displayName ??
+    activeCallPeer?.user?.phoneE164 ??
+    activeCallPeer?.user?.email ??
+    "Caller";
+  const callAvailable = Boolean(callPeer);
+
+  return (
+    <>
+      <header className="border-b border-white/10 bg-[#15171c] px-5 py-4">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="relative">
+              <Avatar user={otherUser} label={title} size="md" />
+              <span className="absolute bottom-0 right-0 rounded-full bg-[#15171c] p-1">
+                <PresenceDot online={hasOnlineMember} size="md" />
+              </span>
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold text-white">{title}</h1>
+              <p className="mt-1 flex items-center gap-2 truncate text-sm text-slate-400">
+                {hasOnlineMember ? (
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                ) : null}
+                {presenceStatus}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex min-w-0 items-center gap-2 xl:w-[480px]">
+            <form
+              onSubmit={onMessageSearch}
+              className="flex min-w-0 flex-1 items-center gap-2"
+            >
+              <input
+                value={messageSearchQuery}
+                onChange={(event) => onMessageSearchChange(event.target.value)}
+                placeholder="Search messages"
+                className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#20232b] px-4 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+              />
+              <button
+                type="submit"
+                disabled={messageSearchLoading}
+                aria-label="Search messages"
+                title="Search messages"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+              </button>
+            </form>
+
+            <button
+              type="button"
+              aria-label="Start video call"
+              title={
+                callAvailable
+                  ? "Start video call"
+                  : "Video calls are available in direct chats"
+              }
+              onClick={call.startCall}
+              disabled={!callAvailable || call.phase !== "idle"}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/15 text-emerald-300 transition hover:bg-emerald-500/25 hover:text-emerald-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.04] disabled:text-slate-500"
+            >
+              <VideoCallIcon />
+            </button>
+          </div>
+
+          {(messageSearchError || messageSearchResults.length > 0) && (
+            <div className="max-h-40 overflow-y-auto rounded-2xl border border-white/10 bg-[#20232b] xl:absolute xl:right-5 xl:top-20 xl:w-[420px]">
+              {messageSearchError ? (
+                <p className="px-4 py-3 text-xs text-red-200">
+                  {messageSearchError}
+                </p>
+              ) : (
+                messageSearchResults.map((message) => (
+                  <button
+                    key={message.id}
+                    type="button"
+                    onClick={() => onHighlightMessage(message.id)}
+                    className="block w-full border-b border-white/5 px-4 py-3 text-left last:border-0 hover:bg-white/[0.05]"
+                  >
+                    <span className="block truncate text-sm text-white/80">
+                      {message.text ?? "Message"}
+                    </span>
+                    <span className="mt-1 block text-[11px] text-white/35">
+                      {new Date(message.createdAt).toLocaleString()}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <CallPanel
+        phase={call.phase}
+        peerName={activeCallPeerName}
+        localStream={call.localStream}
+        remoteStream={call.remoteStream}
+        error={call.error}
+        isMicMuted={call.isMicMuted}
+        isCameraOff={call.isCameraOff}
+        onAccept={call.acceptCall}
+        onDecline={call.endCall}
+        onEnd={call.endCall}
+        onToggleMic={call.toggleMic}
+        onToggleCamera={call.toggleCamera}
+      />
+
+      <MessageThread
+        chatId={chat.id}
+        currentUserId={user.id}
+        chat={chat}
+        highlightedMessageId={highlightedMessageId}
+      />
+    </>
+  );
+}
+
 export default function HomePage() {
   const user = useAuthStore((s) => s.user);
   const joinedChatIdsRef = useRef<Set<string>>(new Set());
@@ -147,7 +339,6 @@ export default function HomePage() {
     null,
   );
   const typingByChatId = useTypingStore((state) => state.typingByChatId);
-  const clearTypingChat = useTypingStore((state) => state.clearChat);
 
   useGlobalTypingListener();
 
@@ -274,7 +465,6 @@ export default function HomePage() {
 
       const joinAllChats = () => {
         for (const chatId of chatIds) {
-          console.log("[typing] joining chat room for typing:", chatId);
           socket.emit("chat:join", { chatId });
           joinedChatIdsRef.current.add(chatId);
         }
@@ -290,24 +480,6 @@ export default function HomePage() {
       cleanupReconnectHandler?.();
     };
   }, [chats, user?.id]);
-
-  useEffect(() => {
-    return () => {
-      const joinedChatIds = Array.from(joinedChatIdsRef.current);
-
-      if (joinedChatIds.length === 0) {
-        return;
-      }
-
-      void getSocket().then((socket) => {
-        joinedChatIds.forEach((chatId) => {
-          socket.emit("chat:leave", { chatId });
-          clearTypingChat(chatId);
-        });
-        joinedChatIdsRef.current.clear();
-      });
-    };
-  }, [clearTypingChat]);
 
   useEffect(() => {
     setMessageSearchQuery("");
@@ -494,130 +666,48 @@ export default function HomePage() {
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#111216]">
-          <header className="border-b border-white/10 bg-[#15171c] px-5 py-4">
-            {selectedChat ? (
-              (() => {
-                const otherMembers = getOtherMembers(selectedChat, user?.id);
-                const otherUser = otherMembers[0]?.user;
-                const title = getChatTitle(selectedChat, user?.id);
-                const presenceStatus = getChatPresenceStatus(
-                  otherMembers,
-                  getPresence,
-                );
-                const hasOnlineMember = otherMembers.some((member) =>
-                  isOnline(member.userId),
-                );
-
-                return (
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex min-w-0 items-center gap-4">
-                      <div className="relative">
-                        <Avatar user={otherUser} label={title} size="md" />
-                        <span className="absolute bottom-0 right-0 rounded-full bg-[#15171c] p-1">
-                          <PresenceDot online={hasOnlineMember} size="md" />
-                        </span>
-                      </div>
-                      <div className="min-w-0">
-                        <h1 className="truncate text-xl font-bold text-white">
-                          {title}
-                        </h1>
-                        <p className="mt-1 flex items-center gap-2 truncate text-sm text-slate-400">
-                          {hasOnlineMember ? <span className="h-2 w-2 rounded-full bg-emerald-400" /> : null}
-                          {presenceStatus}
-                        </p>
-                      </div>
-                    </div>
-
-                    <form
-                      onSubmit={handleMessageSearch}
-                      className="flex min-w-0 items-center gap-2 xl:w-[420px]"
-                    >
-                      <input
-                        value={messageSearchQuery}
-                        onChange={(event) =>
-                          setMessageSearchQuery(event.target.value)
-                        }
-                        placeholder="Search messages"
-                        className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#20232b] px-4 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
-                      />
-                      <button
-                        type="submit"
-                        disabled={messageSearchLoading}
-                        aria-label="Search messages"
-                        title="Search messages"
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                          <circle cx="11" cy="11" r="7" />
-                          <path d="m20 20-3.5-3.5" />
-                        </svg>
-                      </button>
-                    </form>
-
-                    {(messageSearchError || messageSearchResults.length > 0) && (
-                      <div className="max-h-40 overflow-y-auto rounded-2xl border border-white/10 bg-[#20232b] xl:absolute xl:right-5 xl:top-20 xl:w-[420px]">
-                        {messageSearchError ? (
-                          <p className="px-4 py-3 text-xs text-red-200">
-                            {messageSearchError}
-                          </p>
-                        ) : (
-                          messageSearchResults.map((message) => (
-                            <button
-                              key={message.id}
-                              type="button"
-                              onClick={() => setHighlightedMessageId(message.id)}
-                              className="block w-full border-b border-white/5 px-4 py-3 text-left last:border-0 hover:bg-white/[0.05]"
-                            >
-                              <span className="block truncate text-sm text-white/80">
-                                {message.text ?? "Message"}
-                              </span>
-                              <span className="mt-1 block text-[11px] text-white/35">
-                                {new Date(message.createdAt).toLocaleString()}
-                              </span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()
-            ) : (
-              <>
-                <h1 className="truncate text-xl font-bold">
-                  Select a conversation
-                </h1>
-                <p className="mt-1 truncate text-sm text-slate-400">
-                  Create or choose a chat
-                </p>
-              </>
-            )}
-          </header>
-
           {error && (
             <div className="mx-5 mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
               {error}
             </div>
           )}
 
-          {selectedChatId && user ? (
-            <MessageThread
-              chatId={selectedChatId}
-              currentUserId={user.id}
+          {selectedChat && user ? (
+            <ActiveChatPane
               chat={selectedChat}
+              user={user}
+              getPresence={getPresence}
+              isOnline={isOnline}
+              messageSearchQuery={messageSearchQuery}
+              messageSearchResults={messageSearchResults}
+              messageSearchLoading={messageSearchLoading}
+              messageSearchError={messageSearchError}
               highlightedMessageId={highlightedMessageId}
+              onMessageSearchChange={setMessageSearchQuery}
+              onMessageSearch={handleMessageSearch}
+              onHighlightMessage={setHighlightedMessageId}
             />
           ) : (
-            <div className="flex flex-1 items-center justify-center p-6">
-              <div className="max-w-md text-center">
-                <h2 className="text-xl font-bold">Ready for chats</h2>
-
-                <p className="mt-2 text-sm leading-6 text-slate-400">
-                  Create a direct chat from the sidebar using another signed-in
-                  user&apos;s phone number.
+            <>
+              <header className="border-b border-white/10 bg-[#15171c] px-5 py-4">
+                <h1 className="truncate text-xl font-bold">
+                  Select a conversation
+                </h1>
+                <p className="mt-1 truncate text-sm text-slate-400">
+                  Create or choose a chat
                 </p>
+              </header>
+              <div className="flex flex-1 items-center justify-center p-6">
+                <div className="max-w-md text-center">
+                  <h2 className="text-xl font-bold">Ready for chats</h2>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    Create a direct chat from the sidebar using another signed-in
+                    user&apos;s phone number.
+                  </p>
+                </div>
               </div>
-            </div>
+            </>
           )}
         </section>
         </div>

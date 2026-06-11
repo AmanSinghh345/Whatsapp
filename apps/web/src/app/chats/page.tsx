@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatDto } from "@chat/shared";
 import { ProtectedRoute } from "../../features/auth/components/protected-route";
 import { useAuthStore } from "../../features/auth/store/auth.store";
@@ -11,6 +11,8 @@ import {
   type DisplayChat,
 } from "../../features/chat/components/chat-display";
 import { usePresence } from "../../features/realtime/usePresence";
+import { getSocket } from "../../features/realtime/socket.client";
+import { useGlobalTypingListener } from "../../features/realtime/useTypingIndicator";
 import { searchUserByPhone } from "../../features/user/api/users.api";
 
 function buildDemoChats(currentUserId?: string): DisplayChat[] {
@@ -86,6 +88,7 @@ function buildDemoChats(currentUserId?: string): DisplayChat[] {
 
 export default function ChatsPage() {
   const user = useAuthStore((state) => state.user);
+  const joinedChatIdsRef = useRef<Set<string>>(new Set());
   const [chats, setChats] = useState<DisplayChat[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -110,6 +113,8 @@ export default function ChatsPage() {
   }, [chats, user]);
 
   const { getPresence, isOnline } = usePresence(otherUserIds);
+
+  useGlobalTypingListener();
 
   async function loadChats() {
     if (!user) return;
@@ -176,6 +181,38 @@ export default function ChatsPage() {
       void loadChats();
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || chats.length === 0) {
+      return;
+    }
+
+    let active = true;
+    let cleanupReconnectHandler: (() => void) | undefined;
+    const chatIds = chats
+      .map((chat) => chat.id)
+      .filter((chatId) => !chatId.startsWith("demo-chat-"));
+
+    void getSocket().then((socket) => {
+      if (!active) return;
+
+      const joinAllChats = () => {
+        for (const chatId of chatIds) {
+          socket.emit("chat:join", { chatId });
+          joinedChatIdsRef.current.add(chatId);
+        }
+      };
+
+      joinAllChats();
+      socket.on("connect", joinAllChats);
+      cleanupReconnectHandler = () => socket.off("connect", joinAllChats);
+    });
+
+    return () => {
+      active = false;
+      cleanupReconnectHandler?.();
+    };
+  }, [chats, user?.id]);
 
   return (
     <ProtectedRoute>

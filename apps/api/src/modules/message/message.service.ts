@@ -15,7 +15,18 @@ import type {
   SendMessageRequestDto,
   MessageDto,
   UpsertReceiptDto,
+  MessageReactionEmoji,
+  MessageReactionSummaryDto,
+  MessageReactionUpdatedDto,
 } from "@chat/shared";
+
+const ALLOWED_REACTION_EMOJIS: readonly MessageReactionEmoji[] = [
+  "👍",
+  "❤️",
+  "😂",
+  "😮",
+  "😢",
+];
 
 @Injectable()
 export class MessageService {
@@ -72,7 +83,7 @@ export class MessageService {
 
     const existingMessage = await this.prisma.message.findFirst({
       where: { chatId, senderId: userId, clientMessageId },
-      include: { attachments: true, receipts: true },
+      include: { attachments: true, receipts: true, reactions: true },
     });
 
     if (existingMessage) {
@@ -116,7 +127,7 @@ export class MessageService {
 
     const messageWithReceipts = await this.prisma.message.findUnique({
       where: { id: message.id },
-      include: { attachments: true, receipts: true },
+      include: { attachments: true, receipts: true, reactions: true },
     });
     const dto = this.toMessageDto(messageWithReceipts ?? message);
 
@@ -147,7 +158,7 @@ export class MessageService {
 
     const messages = await this.prisma.message.findMany({
       where: { chatId },
-      include: { attachments: true, receipts: true },
+      include: { attachments: true, receipts: true, reactions: true },
       orderBy: { createdAt: "desc" },
       take: limit + 1,
       ...(cursor && { skip: 1, cursor: { id: cursor } }),
@@ -170,7 +181,7 @@ export class MessageService {
 
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
-      include: { attachments: true, receipts: true },
+      include: { attachments: true, receipts: true, reactions: true },
     });
 
     if (!message) {
@@ -208,7 +219,7 @@ export class MessageService {
           mode: "insensitive",
         },
       },
-      include: { attachments: true, receipts: true },
+      include: { attachments: true, receipts: true, reactions: true },
       orderBy: { createdAt: "desc" },
       take: limit + 1,
       ...(cursor && { skip: 1, cursor: { id: cursor } }),
@@ -295,6 +306,73 @@ export class MessageService {
     );
   }
 
+  async toggleReaction(
+    messageId: string,
+    userId: string,
+    emoji: MessageReactionEmoji,
+  ): Promise<MessageReactionUpdatedDto> {
+    this.assertUuid(messageId, "messageId");
+    this.assertReactionEmoji(emoji);
+
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { id: true, chatId: true },
+    });
+
+    if (!message) {
+      throw new NotFoundException(`Message ${messageId} not found`);
+    }
+
+    await this.chatService.getChat(message.chatId, userId);
+
+    const existingReaction = await this.prisma.messageReaction.findUnique({
+      where: { messageId_userId: { messageId, userId } },
+    });
+
+    let reactionAction: "created" | "updated" | "removed";
+
+    if (existingReaction?.emoji === emoji) {
+      await this.prisma.messageReaction.delete({
+        where: { messageId_userId: { messageId, userId } },
+      });
+      reactionAction = "removed";
+    } else if (existingReaction) {
+      await this.prisma.messageReaction.update({
+        where: { messageId_userId: { messageId, userId } },
+        data: { emoji },
+      });
+      reactionAction = "updated";
+    } else {
+      await this.prisma.messageReaction.create({
+        data: { messageId, userId, emoji },
+      });
+      reactionAction = "created";
+    }
+
+    this.logger.log(
+      `[reaction] saved action=${reactionAction} messageId=${messageId} userId=${userId} emoji=${emoji}`,
+    );
+
+    const reactions = await this.getReactionSummaries(messageId);
+    const payload = {
+      chatId: message.chatId,
+      messageId,
+      reactions,
+    };
+    const room = `chat:${message.chatId}`;
+
+    this.logger.log(`[reaction] emit room=${room}`);
+    this.logger.log(`[reaction] payload=${JSON.stringify(payload)}`);
+
+    this.socketGateway.broadcastMessageToChat(
+      message.chatId,
+      SocketEvents.messageReactionUpdated,
+      payload,
+    );
+
+    return payload;
+  }
+
   async deleteMessage(messageId: string, userId: string): Promise<void> {
     this.assertUuid(messageId, "messageId");
 
@@ -341,6 +419,48 @@ export class MessageService {
     }
   }
 
+  private assertReactionEmoji(value: string): asserts value is MessageReactionEmoji {
+    if (!ALLOWED_REACTION_EMOJIS.includes(value as MessageReactionEmoji)) {
+      throw new BadRequestException("Unsupported reaction emoji");
+    }
+  }
+
+  private getReactionSummaries(
+    messageId: string,
+  ): Promise<MessageReactionSummaryDto[]> {
+    return this.prisma.messageReaction
+      .findMany({
+        where: { messageId },
+        select: { emoji: true, userId: true },
+        orderBy: { createdAt: "asc" },
+      })
+      .then((reactions) => this.toReactionSummaries(reactions));
+  }
+
+  private toReactionSummaries(
+    reactions: Array<{ emoji: string; userId: string }> = [],
+  ): MessageReactionSummaryDto[] {
+    const summariesByEmoji = new Map<MessageReactionEmoji, Set<string>>();
+
+    for (const reaction of reactions) {
+      if (!ALLOWED_REACTION_EMOJIS.includes(reaction.emoji as MessageReactionEmoji)) {
+        continue;
+      }
+
+      const emoji = reaction.emoji as MessageReactionEmoji;
+      const userIds = summariesByEmoji.get(emoji) ?? new Set<string>();
+      userIds.add(reaction.userId);
+      summariesByEmoji.set(emoji, userIds);
+    }
+
+    return ALLOWED_REACTION_EMOJIS.flatMap((emoji) => {
+      const userIds = Array.from(summariesByEmoji.get(emoji) ?? []);
+      return userIds.length > 0
+        ? [{ emoji, count: userIds.length, userIds }]
+        : [];
+    });
+  }
+
   private toMessageDto(message: any): MessageDto {
     return {
       id: message.id,
@@ -367,6 +487,7 @@ export class MessageService {
           : {}),
         ...(receipt.seenAt ? { seenAt: receipt.seenAt.toISOString() } : {}),
       })),
+      reactions: this.toReactionSummaries(message.reactions ?? []),
       createdAt: message.createdAt.toISOString(),
     };
   }

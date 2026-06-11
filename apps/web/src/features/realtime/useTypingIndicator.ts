@@ -27,8 +27,6 @@ export function useGlobalTypingListener() {
       if (!active) return;
 
       const handler = (payload: TypingStatePayload) => {
-        console.log("[typing] received typing:state", payload);
-
         if ("typingUserIds" in payload) {
           replaceTypingUsers(payload.chatId, payload.typingUserIds);
           return;

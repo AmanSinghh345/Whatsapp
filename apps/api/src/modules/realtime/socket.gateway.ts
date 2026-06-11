@@ -23,6 +23,8 @@ import type {
   UpsertReceiptDto,
 } from "@chat/shared";
 import { PresenceService } from "./presence.service.js";
+import { PrismaService } from "../prisma/prisma.service.js";
+import type { WebRtcSignalDto } from "@chat/shared";
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -71,6 +73,7 @@ export class SocketGateway
   constructor(
     private readonly socketAuthGuard: SocketAuthGuard,
     private readonly presenceService: PresenceService,
+    private readonly prisma: PrismaService,
   ) {}
 
   setMessageSocketService(service: any): void {
@@ -209,10 +212,6 @@ export class SocketGateway
     const userId = socket.data.userId;
     const chatId = payload.chatId;
 
-    this.logger.log(
-      `[typing] received typing:update userId=${userId} chatId=${chatId} isTyping=${payload.isTyping}`,
-    );
-
     if (!this.typingState.has(chatId)) {
       this.typingState.set(chatId, new Map());
     }
@@ -238,12 +237,6 @@ export class SocketGateway
       updatedAt: new Date().toISOString(),
     };
 
-    this.logger.log(
-      `[typing] emitting typing:state room=chat:${chatId} payload=${JSON.stringify(
-        typingPayload,
-      )}`,
-    );
-
     this.server.to(`chat:${chatId}`).emit(SocketEvents.typingState, typingPayload);
 
     this.logger.debug(
@@ -268,6 +261,64 @@ export class SocketGateway
     );
   }
 
+  @SubscribeMessage(SocketEvents.callJoin)
+  async handleCallJoin(
+    @ConnectedSocket() socket: AuthenticatedSocket,
+    @MessageBody() payload: { callId: string },
+  ): Promise<void> {
+    const userId = socket.data.userId;
+    const call = await this.getCallForParticipant(payload.callId, userId);
+
+    if (!call) {
+      socket.emit("call:join:error", {
+        callId: payload.callId,
+        message: "Call not found or access denied",
+      });
+      return;
+    }
+
+    socket.join(`call:${payload.callId}`);
+    this.logger.debug(`User ${userId} joined call:${payload.callId}`);
+  }
+
+  @SubscribeMessage(SocketEvents.callLeave)
+  async handleCallLeave(
+    @ConnectedSocket() socket: AuthenticatedSocket,
+    @MessageBody() payload: { callId: string },
+  ): Promise<void> {
+    const userId = socket.data.userId;
+    const call = await this.getCallForParticipant(payload.callId, userId);
+
+    if (!call) {
+      return;
+    }
+
+    socket.leave(`call:${payload.callId}`);
+    this.logger.debug(`User ${userId} left call:${payload.callId}`);
+  }
+
+  @SubscribeMessage(SocketEvents.callSignal)
+  async handleCallSignal(
+    @ConnectedSocket() socket: AuthenticatedSocket,
+    @MessageBody() payload: WebRtcSignalDto,
+  ): Promise<void> {
+    const userId = socket.data.userId;
+    const call = await this.getCallForParticipant(payload.callId, userId);
+
+    if (!call || !this.isCallParticipant(call, payload.toUserId)) {
+      socket.emit("call:signal:error", {
+        callId: payload.callId,
+        message: "Signal target is not part of this call",
+      });
+      return;
+    }
+
+    this.server.to(`user:${payload.toUserId}`).emit(SocketEvents.callSignal, {
+      ...payload,
+      fromUserId: userId,
+    });
+  }
+
   @SubscribeMessage("chat:join")
   handleChatJoin(
     @ConnectedSocket() socket: AuthenticatedSocket,
@@ -277,7 +328,7 @@ export class SocketGateway
     const { chatId } = payload;
 
     this.joinChatRoom(socket, chatId);
-    this.logger.log(`[typing] User ${userId} joined chat:${chatId}`);
+    this.logger.debug(`User ${userId} joined chat:${chatId}`);
 
     this.server.to(`chat:${chatId}`).emit("chat:member_joined", {
       userId,
@@ -328,6 +379,14 @@ export class SocketGateway
     this.server.to(`user:${userId}`).emit(eventName, payload);
   }
 
+  broadcastToCall(
+    callId: string,
+    eventName: SocketEventName,
+    payload: unknown,
+  ): void {
+    this.server.to(`call:${callId}`).emit(eventName, payload);
+  }
+
   getUserSockets(userId: string): string[] {
     return [];
   }
@@ -351,5 +410,25 @@ export class SocketGateway
     for (const chatId of audience.chatIds) {
       this.server.to(`chat:${chatId}`).emit(eventName, payload);
     }
+  }
+
+  private async getCallForParticipant(callId: string, userId: string) {
+    const call = await this.prisma.callSession.findUnique({
+      where: { id: callId },
+      select: { id: true, initiatorId: true, receiverId: true },
+    });
+
+    if (!call || !this.isCallParticipant(call, userId)) {
+      return null;
+    }
+
+    return call;
+  }
+
+  private isCallParticipant(
+    call: { initiatorId: string; receiverId: string },
+    userId: string,
+  ): boolean {
+    return call.initiatorId === userId || call.receiverId === userId;
   }
 }

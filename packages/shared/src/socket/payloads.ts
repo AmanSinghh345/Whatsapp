@@ -1,5 +1,5 @@
 import type { ChatDto } from "../dto/chats.dto.js";
-import type { MessageDto, SendMessageRequestDto, UpsertReceiptDto } from "../dto/messages.dto.js";
+import type { MessageDto, MessageReactionUpdatedDto, SendMessageRequestDto, UpsertReceiptDto } from "../dto/messages.dto.js";
 import type { CallSessionDto, WebRtcSignalDto } from "../dto/calls.dto.js";
 import type { Id, ISODateString } from "../types/index.js";
 
@@ -55,6 +55,7 @@ export type ClientToServerEvents = {
 export type ServerToClientEvents = {
   "message:new": (payload: { message: MessageDto }) => void;
   "message:receipt:updated": (payload: { messageId: Id; recipientId: Id; deliveredAt?: ISODateString; seenAt?: ISODateString }) => void;
+  "message:reactionUpdated": (payload: MessageReactionUpdatedDto) => void;
 
   "typing:state": (payload: TypingStatePayload) => void;
 

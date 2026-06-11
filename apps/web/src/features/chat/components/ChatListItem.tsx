@@ -14,6 +14,7 @@ interface ChatListItemProps {
   currentUserId?: string | undefined;
   active: boolean;
   online: boolean;
+  isTyping: boolean;
   presenceText: string;
   onSelect: (chatId: ChatDto["id"]) => void;
 }
@@ -23,6 +24,7 @@ export function ChatListItem({
   currentUserId,
   active,
   online,
+  isTyping,
   presenceText,
   onSelect,
 }: ChatListItemProps) {
@@ -30,7 +32,7 @@ export function ChatListItem({
   const subtitle = getChatSubtitle(chat, currentUserId);
   const avatarUser = getChatAvatarUser(chat, currentUserId);
   const unreadCount = chat.unreadCount ?? 0;
-  const preview = chat.lastMessagePreview ?? subtitle;
+  const preview = isTyping ? "Typing..." : (chat.lastMessagePreview ?? subtitle);
   const time = formatChatTime(chat.lastMessageAt ?? chat.updatedAt);
 
   return (
@@ -64,7 +66,14 @@ export function ChatListItem({
           </div>
 
           <div className="mt-1 flex min-w-0 items-center gap-2">
-            <span className="truncate text-xs text-slate-400">{preview}</span>
+            <span
+              className={[
+                "truncate text-xs",
+                isTyping ? "font-semibold text-emerald-300" : "text-slate-400",
+              ].join(" ")}
+            >
+              {preview}
+            </span>
             {unreadCount > 0 ? (
               <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-cyan-400 px-1.5 text-[11px] font-bold text-slate-950">
                 {unreadCount > 9 ? "9+" : unreadCount}

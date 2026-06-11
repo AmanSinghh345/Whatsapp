@@ -23,21 +23,51 @@ function toPresenceRecord(payload: PresenceStatePayload): PresenceRecord {
   };
 }
 
+function shouldApplyPresence(
+  current: PresenceRecord | undefined,
+  next: PresenceRecord,
+): boolean {
+  if (!current) {
+    return true;
+  }
+
+  const currentTime = new Date(current.updatedAt).getTime();
+  const nextTime = new Date(next.updatedAt).getTime();
+
+  if (Number.isNaN(currentTime) || Number.isNaN(nextTime)) {
+    return true;
+  }
+
+  return nextTime >= currentTime;
+}
+
 export const usePresenceStore = create<PresenceStore>((set) => ({
   presenceByUserId: {},
   setPresence: (presence) =>
-    set((state) => ({
-      presenceByUserId: {
-        ...state.presenceByUserId,
-        [presence.userId]: toPresenceRecord(presence),
-      },
-    })),
+    set((state) => {
+      const nextPresence = toPresenceRecord(presence);
+
+      if (!shouldApplyPresence(state.presenceByUserId[presence.userId], nextPresence)) {
+        return state;
+      }
+
+      return {
+        presenceByUserId: {
+          ...state.presenceByUserId,
+          [presence.userId]: nextPresence,
+        },
+      };
+    }),
   setManyPresence: (presenceList) =>
     set((state) => {
       const next = { ...state.presenceByUserId };
 
       for (const presence of presenceList) {
-        next[presence.userId] = toPresenceRecord(presence);
+        const nextPresence = toPresenceRecord(presence);
+
+        if (shouldApplyPresence(next[presence.userId], nextPresence)) {
+          next[presence.userId] = nextPresence;
+        }
       }
 
       return { presenceByUserId: next };

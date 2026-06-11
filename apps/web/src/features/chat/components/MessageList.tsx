@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatDto } from "@chat/shared";
-import type { MessageDto } from "../api/messages.api";
+import type { MessageDto, MessageReactionEmoji } from "../api/messages.api";
 import { MessageBubble } from "./MessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { getUserLabel } from "./chat-display";
@@ -13,6 +13,8 @@ interface MessageListProps {
   loading?: boolean;
   typing?: boolean;
   typingLabel?: string;
+  onReact?: (messageId: string, emoji: MessageReactionEmoji) => void;
+  pendingReactionMessageIds?: Set<string>;
   highlightedMessageId?: string | null;
   bottomRef?: React.RefObject<HTMLDivElement | null>;
   messageRefs?: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
@@ -47,6 +49,8 @@ export function MessageList({
   loading = false,
   typing = false,
   typingLabel = "Someone is typing...",
+  onReact,
+  pendingReactionMessageIds,
   highlightedMessageId = null,
   bottomRef,
   messageRefs,
@@ -94,6 +98,9 @@ export function MessageList({
                   highlighted={message.id === highlightedMessageId}
                   groupedWithPrevious={groupedWithPrevious}
                   senderLabel={getSenderLabel(chat, message.senderId)}
+                  currentUserId={currentUserId}
+                  reactionPending={pendingReactionMessageIds?.has(message.id) ?? false}
+                  {...(onReact ? { onReact } : {})}
                   {...(senderUser ? { senderUser } : {})}
                 />
               </div>

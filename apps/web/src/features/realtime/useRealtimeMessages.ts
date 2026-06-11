@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { getSocket } from "./socket.client";
-import type { MessageDto } from "../chat/api/messages.api";
+import type {
+  MessageDto,
+  MessageReactionUpdatedDto,
+} from "../chat/api/messages.api";
 import { upsertMessageReceipt } from "../chat/api/messages.api";
 
 interface Options {
@@ -8,6 +11,10 @@ interface Options {
   currentUserId: string;
   onMessage: (msg: MessageDto) => void;
   onReceiptUpdate: (messageId: string, status: "delivered" | "seen") => void;
+  onReactionUpdate: (
+    messageId: string,
+    reactions: MessageReactionUpdatedDto["reactions"],
+  ) => void;
 }
 
 type ReceiptUpdatePayload = {
@@ -21,11 +28,14 @@ export function useRealtimeMessages({
   currentUserId,
   onMessage,
   onReceiptUpdate,
+  onReactionUpdate,
 }: Options) {
   const onMessageRef = useRef(onMessage);
   const onReceiptUpdateRef = useRef(onReceiptUpdate);
+  const onReactionUpdateRef = useRef(onReactionUpdate);
   onMessageRef.current = onMessage;
   onReceiptUpdateRef.current = onReceiptUpdate;
+  onReactionUpdateRef.current = onReactionUpdate;
 
   useEffect(() => {
     if (!chatId) return;
@@ -37,10 +47,16 @@ export function useRealtimeMessages({
         const socket = await getSocket();
         if (!active) return;
 
+        const joinActiveChat = () => {
+          socket.emit("chat:join", { chatId });
+        };
+
+        joinActiveChat();
+        socket.on("connect", joinActiveChat);
+
         const handler = (msg: MessageDto) => {
           if (msg.chatId !== chatId) return;
 
-          console.log("[socket] message:new received:", msg);
           onMessageRef.current(msg);
           if (msg.senderId !== currentUserId) {
             void upsertMessageReceipt(msg.chatId, msg.id, "seen");
@@ -48,19 +64,27 @@ export function useRealtimeMessages({
         };
 
         const receiptHandler = (payload: ReceiptUpdatePayload) => {
-          console.log("[socket] message:receipt:updated received:", payload);
           if (payload.recipientId !== currentUserId) {
             onReceiptUpdateRef.current(payload.messageId, payload.status);
           }
         };
 
+        const reactionHandler = (payload: MessageReactionUpdatedDto) => {
+          console.log("[reaction] event received", payload);
+          if (payload.chatId !== chatId) return;
+          onReactionUpdateRef.current(payload.messageId, payload.reactions);
+        };
+
         socket.on("message:new", handler);
         socket.on("message:receipt:updated", receiptHandler);
+        socket.on("message:reactionUpdated", reactionHandler);
 
         // Cleanup
         return () => {
+          socket.off("connect", joinActiveChat);
           socket.off("message:new", handler);
           socket.off("message:receipt:updated", receiptHandler);
+          socket.off("message:reactionUpdated", reactionHandler);
         };
       } catch (err) {
         console.error("[socket] setup failed:", err);

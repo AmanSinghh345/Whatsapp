@@ -45,6 +45,7 @@ model User {
   chatMembers            ChatMember[]
   sentMessages           Message[]      @relation("MessageSender")
   receivedMessageReceipts MessageReceipt[] @relation("ReceiptRecipient")
+  messageReactions       MessageReaction[]
   initiatedCalls         CallSession[]  @relation("CallInitiator")
   receivedCalls          CallSession[]  @relation("CallReceiver")
 }
@@ -93,10 +94,27 @@ model Message {
   sender      User                @relation("MessageSender", fields: [senderId], references: [id], onDelete: Restrict)
   attachments MessageAttachment[]
   receipts    MessageReceipt[]
+  reactions   MessageReaction[]
 
   @@unique([chatId, senderId, clientMessageId])
   @@index([chatId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([senderId, createdAt(sort: Desc), id(sort: Desc)])
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  emoji     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId, emoji])
+  @@index([userId, updatedAt(sort: Desc)])
 }
 
 model MessageAttachment {

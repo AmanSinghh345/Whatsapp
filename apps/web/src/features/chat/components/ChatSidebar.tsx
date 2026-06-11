@@ -7,6 +7,7 @@ import {
   type DisplayChat,
   type PresenceView,
 } from "./chat-display";
+import { useTypingStore } from "../../realtime/typing.store";
 
 interface ChatSidebarProps {
   user: UserDto | null;
@@ -47,6 +48,7 @@ export function ChatSidebar({
   onRefresh,
   onCloseMobile,
 }: ChatSidebarProps) {
+  const typingByChatId = useTypingStore((state) => state.typingByChatId);
   const filteredChats = chats.filter((chat) =>
     getChatTitle(chat, user?.id).toLowerCase().includes(searchQuery.toLowerCase()),
   );
@@ -159,6 +161,10 @@ export function ChatSidebar({
                   otherMembers,
                   getPresence,
                 );
+                const typingUserIds = (typingByChatId[chat.id] ?? []).filter(
+                  (userId) => userId !== user?.id,
+                );
+                const isTyping = typingUserIds.length > 0;
 
                 return (
                   <ChatListItem
@@ -167,6 +173,7 @@ export function ChatSidebar({
                     currentUserId={user?.id}
                     active={chat.id === selectedChatId}
                     online={online}
+                    isTyping={isTyping}
                     presenceText={presenceText}
                     onSelect={(chatId) => {
                       onSelectChat(chatId);

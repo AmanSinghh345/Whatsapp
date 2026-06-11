@@ -22,6 +22,8 @@ import type {
   SendMessageRequestDto,
   UpsertReceiptDto,
   SearchMessagesResponseDto,
+  MessageReactionEmoji,
+  MessageReactionUpdatedDto,
 } from "@chat/shared";
 
 @Controller("messages")
@@ -144,6 +146,25 @@ export class MessageController {
       user.id ?? user.firebaseUid,
     );
     return { data: receipts };
+  }
+
+  /**
+   * Toggle current user's reaction for a message
+   * POST /api/messages/:messageId/reactions
+   * Body: { emoji: MessageReactionEmoji }
+   */
+  @Post(":messageId/reactions")
+  async toggleReaction(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("messageId", new ParseUUIDPipe()) messageId: string,
+    @Body("emoji") emoji: MessageReactionEmoji,
+  ): Promise<{ data: MessageReactionUpdatedDto }> {
+    const result = await this.messageService.toggleReaction(
+      messageId,
+      user.id ?? user.firebaseUid,
+      emoji,
+    );
+    return { data: result };
   }
 
   /**

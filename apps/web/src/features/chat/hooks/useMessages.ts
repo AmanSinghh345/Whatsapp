@@ -3,8 +3,11 @@ import {
   fetchMessages,
   sendAttachmentMessage,
   sendMessage,
+  toggleMessageReaction,
   upsertMessageReceipt,
   MessageDto,
+  type MessageReactionEmoji,
+  type MessageReactionSummaryDto,
 } from "../api/messages.api";
 import { uploadChatMedia } from "../api/media.api";
 
@@ -12,8 +15,63 @@ export function useMessages(chatId: string | null, currentUserId: string) {
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [pendingReactionMessageIds, setPendingReactionMessageIds] = useState<
+    Set<string>
+  >(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const pendingReactionMessageIdsRef = useRef<Set<string>>(new Set());
+
+  const getOptimisticReactions = useCallback(
+    (
+      reactions: MessageReactionSummaryDto[] | undefined,
+      emoji: MessageReactionEmoji,
+    ): MessageReactionSummaryDto[] => {
+      const currentReactions = reactions ?? [];
+      const existingReaction = currentReactions.find((reaction) =>
+        reaction.userIds.includes(currentUserId),
+      );
+      const shouldRemoveReaction = existingReaction?.emoji === emoji;
+      const nextByEmoji = new Map<
+        MessageReactionEmoji,
+        MessageReactionSummaryDto
+      >();
+
+      for (const reaction of currentReactions) {
+        const nextUserIds = reaction.userIds.filter(
+          (userId) => userId !== currentUserId,
+        );
+
+        if (nextUserIds.length > 0) {
+          nextByEmoji.set(reaction.emoji, {
+            emoji: reaction.emoji,
+            count: nextUserIds.length,
+            userIds: nextUserIds,
+          });
+        }
+      }
+
+      if (!shouldRemoveReaction) {
+        const target = nextByEmoji.get(emoji);
+        const userIds = target?.userIds ?? [];
+        const nextUserIds = userIds.includes(currentUserId)
+          ? userIds
+          : [...userIds, currentUserId];
+
+        nextByEmoji.set(emoji, {
+          emoji,
+          count: nextUserIds.length,
+          userIds: nextUserIds,
+        });
+      }
+
+      return ["👍", "❤️", "😂", "😮", "😢"].flatMap((allowedEmoji) => {
+        const reaction = nextByEmoji.get(allowedEmoji as MessageReactionEmoji);
+        return reaction ? [reaction] : [];
+      });
+    },
+    [currentUserId],
+  );
 
   useEffect(() => {
     if (!chatId) {
@@ -101,6 +159,75 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     [],
   );
 
+  const updateMessageReactions = useCallback(
+    (messageId: string, reactions: MessageReactionSummaryDto[]) => {
+      setMessages((prev) => {
+        const found = prev.some((message) => message.id === messageId);
+
+        console.log(
+          `[reaction] message id ${found ? "found" : "not found"} in state`,
+          { messageId, messageCount: prev.length },
+        );
+
+        if (!found) {
+          return prev;
+        }
+
+        const next = prev.map((message) =>
+          message.id === messageId ? { ...message, reactions } : message,
+        );
+
+        console.log("[reaction] state updated", { messageId, reactions });
+        return next;
+      });
+    },
+    [],
+  );
+
+  const reactToMessage = useCallback(
+    async (messageId: string, emoji: MessageReactionEmoji) => {
+      if (pendingReactionMessageIdsRef.current.has(messageId)) {
+        return;
+      }
+
+      const currentMessage = messages.find((message) => message.id === messageId);
+      const previousReactions = currentMessage?.reactions ?? [];
+      const optimisticReactions = getOptimisticReactions(
+        previousReactions,
+        emoji,
+      );
+
+      pendingReactionMessageIdsRef.current.add(messageId);
+      setPendingReactionMessageIds((current) => {
+        const next = new Set(current);
+        next.add(messageId);
+        return next;
+      });
+      setError(null);
+      updateMessageReactions(messageId, optimisticReactions);
+
+      try {
+        const result = await toggleMessageReaction(messageId, emoji);
+        updateMessageReactions(result.messageId, result.reactions);
+      } catch (e: any) {
+        updateMessageReactions(messageId, previousReactions);
+        setError(e.message);
+      } finally {
+        pendingReactionMessageIdsRef.current.delete(messageId);
+        setPendingReactionMessageIds((current) => {
+          const next = new Set(current);
+          next.delete(messageId);
+          return next;
+        });
+      }
+    },
+    [
+      getOptimisticReactions,
+      messages,
+      updateMessageReactions,
+    ],
+  );
+
   const sendAttachment = useCallback(
     async (file: File) => {
       if (!chatId) return;
@@ -131,6 +258,9 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     sendAttachment,
     appendMessage,
     updateReceiptStatus,
+    updateMessageReactions,
+    reactToMessage,
+    pendingReactionMessageIds,
     bottomRef,
   };
 }

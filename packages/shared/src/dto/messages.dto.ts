@@ -2,6 +2,8 @@ import type { Id, ISODateString } from "../types/index.js";
 
 export type MessageContentType = "text" | "attachment" | "system";
 
+export type MessageReactionEmoji = "👍" | "❤️" | "😂" | "😮" | "😢";
+
 export type MessageAttachmentDto = {
   id: Id;
   url: string;
@@ -23,6 +25,7 @@ export type MessageDto = {
   attachments?: MessageAttachmentDto[];
   receiptStatus?: "sent" | "delivered" | "seen";
   receipts?: MessageReceiptDto[];
+  reactions?: MessageReactionSummaryDto[];
   createdAt: ISODateString;
 };
 
@@ -30,6 +33,12 @@ export type MessageReceiptDto = {
   recipientId: Id;
   deliveredAt?: ISODateString;
   seenAt?: ISODateString;
+};
+
+export type MessageReactionSummaryDto = {
+  emoji: MessageReactionEmoji;
+  count: number;
+  userIds: Id[];
 };
 
 export type SendMessageRequestDto = {
@@ -59,4 +68,14 @@ export type UpsertReceiptDto = {
   chatId: Id;
   status: MessageReceiptStatus;
   clientReceivedAt?: ISODateString;
+};
+
+export type ToggleMessageReactionRequestDto = {
+  emoji: MessageReactionEmoji;
+};
+
+export type MessageReactionUpdatedDto = {
+  chatId: Id;
+  messageId: Id;
+  reactions: MessageReactionSummaryDto[];
 };

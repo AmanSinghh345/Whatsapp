@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "tsc -w",
+    "dev": "npm run build && npm run start",
+    "dev:compile": "tsc -w",
     "start": "node dist/apps/api/src/main.js",
     "build": "nest build",
     "typecheck": "tsc -p tsconfig.json --noEmit",

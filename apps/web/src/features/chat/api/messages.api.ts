@@ -32,7 +32,22 @@ export interface MessageDto {
     height?: number;
   }[];
   receiptStatus?: "sent" | "delivered" | "seen";
+  reactions?: MessageReactionSummaryDto[];
   createdAt: string;
+}
+
+export type MessageReactionEmoji = "👍" | "❤️" | "😂" | "😮" | "😢";
+
+export interface MessageReactionSummaryDto {
+  emoji: MessageReactionEmoji;
+  count: number;
+  userIds: string[];
+}
+
+export interface MessageReactionUpdatedDto {
+  chatId: string;
+  messageId: string;
+  reactions: MessageReactionSummaryDto[];
 }
 
 export async function fetchMessages(
@@ -151,4 +166,23 @@ export async function upsertMessageReceipt(
   if (!res.ok) {
     throw new Error(`Failed to update message receipt: ${res.status}`);
   }
+}
+
+export async function toggleMessageReaction(
+  messageId: string,
+  emoji: MessageReactionEmoji,
+): Promise<MessageReactionUpdatedDto> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/messages/${messageId}/reactions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ emoji }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to update reaction: ${res.status}`);
+  }
+
+  const body = await res.json();
+  return body.data;
 }

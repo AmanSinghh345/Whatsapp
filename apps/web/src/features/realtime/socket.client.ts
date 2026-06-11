@@ -67,8 +67,8 @@ function waitForConnect(socket: Socket): Promise<Socket> {
       settle(() => resolve(socket));
     };
 
-    const handleConnectError = (error: Error) => {
-      settle(() => reject(error));
+    const handleConnectError = () => {
+      // Socket.IO may recover from transient connection errors; keep waiting.
     };
 
     const timeout = setTimeout(() => {
@@ -105,7 +105,7 @@ export async function getSocket(): Promise<Socket> {
 
   const socket = io(SOCKET_URL, {
     auth: { token },
-    transports: ["polling", "websocket"],
+    transports: ["websocket"],
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: 10,

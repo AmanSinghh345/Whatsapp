@@ -32,6 +32,9 @@ export function MessageThread({
     sendAttachment,
     appendMessage,
     updateReceiptStatus,
+    updateMessageReactions,
+    reactToMessage,
+    pendingReactionMessageIds,
     bottomRef,
   } = useMessages(chatId, currentUserId);
 
@@ -45,6 +48,7 @@ export function MessageThread({
     currentUserId,
     onMessage: handleIncoming,
     onReceiptUpdate: updateReceiptStatus,
+    onReactionUpdate: updateMessageReactions,
   });
 
   const { onKeyStroke } = useTyping(chatId, currentUserId);
@@ -80,6 +84,8 @@ export function MessageThread({
         loading={loading}
         typing={isTyping}
         typingLabel={typingLabel}
+        onReact={reactToMessage}
+        pendingReactionMessageIds={pendingReactionMessageIds}
         highlightedMessageId={highlightedMessageId}
         bottomRef={bottomRef}
         messageRefs={messageRefs}
