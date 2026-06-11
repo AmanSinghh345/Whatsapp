@@ -12,7 +12,9 @@ import {
 } from "../features/chat/api/messages.api";
 import { CallPanel } from "../features/chat/components/CallPanel";
 import { MessageThread } from "../features/chat/components/MessageThread";
+import { useLiveChatPreviews } from "../features/chat/hooks/useLiveChatPreviews";
 import { usePresence } from "../features/realtime/usePresence";
+import { useBrowserNotifications } from "../features/realtime/useBrowserNotifications";
 import { getSocket } from "../features/realtime/socket.client";
 import { useGlobalTypingListener } from "../features/realtime/useTypingIndicator";
 import { useTypingStore } from "../features/realtime/typing.store";
@@ -355,6 +357,17 @@ export default function HomePage() {
   }, [chats, user?.id]);
 
   const { getPresence, isOnline } = usePresence(otherUserIds);
+  useBrowserNotifications({
+    chats,
+    currentUserId: user?.id,
+    selectedChatId,
+    onSelectChat: setSelectedChatId,
+  });
+  useLiveChatPreviews({
+    currentUserId: user?.id,
+    selectedChatId,
+    setChats,
+  });
 
   async function loadChats() {
     setIsLoading(true);
@@ -584,6 +597,10 @@ export default function HomePage() {
                   const otherUser = otherMembers[0]?.user;
                   const title = getChatTitle(chat, user?.id);
                   const subtitle = getChatSubtitle(chat, user?.id);
+                  const preview =
+                    chat.lastMessagePreview ?? subtitle;
+                  const unreadCount = chat.unreadCount ?? 0;
+                  const previewTime = chat.lastMessageAt ?? chat.updatedAt;
                   const otherMemberIds = otherMembers.map((member) => member.userId);
                   const hasOnlineMember = otherMemberIds.some((id) =>
                     isOnline(id),
@@ -625,19 +642,23 @@ export default function HomePage() {
                               isTypingInChat ? "font-semibold text-emerald-400" : "text-slate-400"
                             }`}
                           >
-                            {isTypingInChat ? "Typing..." : subtitle}
+                            {isTypingInChat ? "Typing..." : preview}
                           </span>
                         </div>
 
                         <div className="flex shrink-0 flex-col items-end gap-2">
                           <span className="text-xs text-slate-400">
-                            {new Date(chat.updatedAt).toLocaleTimeString([], {
+                            {new Date(previewTime).toLocaleTimeString([], {
                               hour: "2-digit",
                               minute: "2-digit",
                             })}
                           </span>
-                          {hasOnlineMember ? (
+                          {unreadCount > 0 ? (
                             <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-bold text-[#07110d]">
+                              {unreadCount > 9 ? "9+" : unreadCount}
+                            </span>
+                          ) : hasOnlineMember ? (
+                            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-300">
                               On
                             </span>
                           ) : null}

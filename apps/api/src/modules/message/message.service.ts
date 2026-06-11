@@ -106,6 +106,10 @@ export class MessageService {
       },
       include: { attachments: true },
     });
+    await this.prisma.chat.update({
+      where: { id: chatId },
+      data: { updatedAt: message.createdAt },
+    });
 
     const chatMembers = await this.prisma.chatMember.findMany({
       where: { chatId, userId: { not: userId } },

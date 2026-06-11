@@ -10,6 +10,9 @@ export type ChatDto = {
   avatarUrl?: string;
   memberIds?: Id[];
   members?: ChatMemberDto[];
+  lastMessagePreview?: string | null;
+  lastMessageAt?: ISODateString | null;
+  unreadCount?: number;
   createdAt: ISODateString;
   updatedAt: ISODateString;
 };

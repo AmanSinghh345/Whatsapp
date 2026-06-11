@@ -10,7 +10,9 @@ import {
   getOtherMemberIds,
   type DisplayChat,
 } from "../../features/chat/components/chat-display";
+import { useLiveChatPreviews } from "../../features/chat/hooks/useLiveChatPreviews";
 import { usePresence } from "../../features/realtime/usePresence";
+import { useBrowserNotifications } from "../../features/realtime/useBrowserNotifications";
 import { getSocket } from "../../features/realtime/socket.client";
 import { useGlobalTypingListener } from "../../features/realtime/useTypingIndicator";
 import { searchUserByPhone } from "../../features/user/api/users.api";
@@ -115,6 +117,20 @@ export default function ChatsPage() {
   const { getPresence, isOnline } = usePresence(otherUserIds);
 
   useGlobalTypingListener();
+  useBrowserNotifications({
+    chats,
+    currentUserId: user?.id,
+    selectedChatId,
+    onSelectChat: (chatId) => {
+      setSelectedChatId(chatId);
+      setSidebarOpen(false);
+    },
+  });
+  useLiveChatPreviews({
+    currentUserId: user?.id,
+    selectedChatId,
+    setChats,
+  });
 
   async function loadChats() {
     if (!user) return;

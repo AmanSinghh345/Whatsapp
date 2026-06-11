@@ -143,7 +143,18 @@ export class ChatService {
           some: { userId },
         },
       },
-      include: { members: { include: { user: true } } },
+      include: {
+        members: { include: { user: true } },
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            contentType: true,
+            textContent: true,
+            createdAt: true,
+          },
+        },
+      },
       orderBy: { updatedAt: "desc" },
       take: limit + 1, // Get one extra to determine if there's a next page
       ...(cursor && { skip: 1, cursor: { id: cursor } }),
@@ -155,8 +166,15 @@ export class ChatService {
       ? paginatedChats[paginatedChats.length - 1]!.id
       : null;
 
+    const unreadCounts = await this.getUnreadCounts(
+      paginatedChats.map((chat) => chat.id),
+      userId,
+    );
+
     return {
-      chats: paginatedChats.map((chat) => this.toChatDto(chat)),
+      chats: paginatedChats.map((chat) =>
+        this.toChatDto(chat, unreadCounts.get(chat.id) ?? 0),
+      ),
       nextCursor,
     };
   }
@@ -358,7 +376,9 @@ export class ChatService {
   /**
    * Convert Prisma Chat to DTO
    */
-  private toChatDto(chat: any): ChatDto {
+  private toChatDto(chat: any, unreadCount = 0): ChatDto {
+    const lastMessage = chat.messages?.[0];
+
     return {
       id: chat.id,
       type: chat.type,
@@ -366,9 +386,59 @@ export class ChatService {
       ...(chat.avatarUrl ? { avatarUrl: chat.avatarUrl } : {}),
       memberIds: chat.members?.map((member: any) => member.userId),
       members: chat.members?.map((member: any) => this.toChatMemberDto(member)),
+      ...(lastMessage
+        ? {
+            lastMessagePreview: this.toMessagePreview(lastMessage),
+            lastMessageAt: lastMessage.createdAt.toISOString(),
+          }
+        : {}),
+      unreadCount,
       createdAt: chat.createdAt.toISOString(),
       updatedAt: chat.updatedAt.toISOString(),
     };
+  }
+
+  private async getUnreadCounts(
+    chatIds: string[],
+    userId: string,
+  ): Promise<Map<string, number>> {
+    if (chatIds.length === 0) {
+      return new Map();
+    }
+
+    const counts = await this.prisma.message.groupBy({
+      by: ["chatId"],
+      where: {
+        chatId: { in: chatIds },
+        senderId: { not: userId },
+        receipts: {
+          some: {
+            recipientId: userId,
+            seenAt: null,
+          },
+        },
+      },
+      _count: { _all: true },
+    });
+
+    return new Map(
+      counts.map((item) => [item.chatId, item._count._all]),
+    );
+  }
+
+  private toMessagePreview(message: {
+    contentType: string;
+    textContent?: string | null;
+  }): string {
+    if (message.contentType === "system") {
+      return message.textContent ?? "Call activity";
+    }
+
+    if (message.contentType === "attachment") {
+      return message.textContent ?? "Attachment";
+    }
+
+    return message.textContent ?? "Message";
   }
 
   /**

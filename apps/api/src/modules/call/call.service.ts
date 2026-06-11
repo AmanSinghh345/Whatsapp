@@ -235,6 +235,10 @@ export class CallService {
       },
       include: { attachments: true, receipts: true, reactions: true },
     });
+    await this.prisma.chat.update({
+      where: { id: call.chatId },
+      data: { updatedAt: message.createdAt },
+    });
 
     const chatMembers = await this.prisma.chatMember.findMany({
       where: { chatId: call.chatId, userId: { not: call.createdById } },
