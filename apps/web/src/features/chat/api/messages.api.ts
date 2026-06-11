@@ -19,7 +19,7 @@ export interface MessageDto {
   chatId: string;
   senderId: string;
   clientMessageId: string;
-  contentType: "text" | "attachment";
+  contentType: "text" | "attachment" | "system";
   text?: string | null;
   attachments?: {
     id: string;

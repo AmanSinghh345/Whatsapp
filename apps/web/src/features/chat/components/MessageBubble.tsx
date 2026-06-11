@@ -48,6 +48,34 @@ export function MessageBubble({
     reaction.userIds.includes(currentUserId),
   )?.emoji;
 
+  if (message.contentType === "system") {
+    return (
+      <div
+        className={`my-4 flex justify-center ${
+          highlighted ? "rounded-2xl ring-2 ring-amber-300/80" : ""
+        }`}
+      >
+        <div className="inline-flex max-w-[min(88%,520px)] items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-center text-xs font-semibold text-slate-300 shadow-lg shadow-black/15">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="h-4 w-4 shrink-0 text-emerald-300"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+          >
+            <path d="m16 13 5 3V8l-5 3" />
+            <rect x="3" y="6" width="13" height="12" rx="2" />
+          </svg>
+          <span className="min-w-0 break-words">{message.text}</span>
+          <span className="shrink-0 text-slate-500">{time}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={[

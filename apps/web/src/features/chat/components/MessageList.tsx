@@ -22,6 +22,9 @@ interface MessageListProps {
 
 function isSameMessageGroup(current: MessageDto, previous?: MessageDto) {
   if (!previous) return false;
+  if (current.contentType === "system" || previous.contentType === "system") {
+    return false;
+  }
   if (current.senderId !== previous.senderId) return false;
 
   const currentTime = new Date(current.createdAt).getTime();
