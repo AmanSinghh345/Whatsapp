@@ -16,6 +16,7 @@ interface MessageListProps {
   onReact?: (messageId: string, emoji: MessageReactionEmoji) => void;
   onEdit?: (messageId: string, text: string) => void;
   onDelete?: (messageId: string) => void;
+  onReply?: (message: MessageDto) => void;
   pendingReactionMessageIds?: Set<string>;
   editingMessageId?: string | null;
   deletingMessageId?: string | null;
@@ -59,6 +60,7 @@ export function MessageList({
   onReact,
   onEdit,
   onDelete,
+  onReply,
   pendingReactionMessageIds,
   editingMessageId = null,
   deletingMessageId = null,
@@ -93,6 +95,9 @@ export function MessageList({
             const previous = messages[index - 1];
             const groupedWithPrevious = isSameMessageGroup(message, previous);
             const senderUser = getSenderUser(chat, message.senderId);
+            const replyToLabel = message.replyTo
+              ? getSenderLabel(chat, message.replyTo.senderId)
+              : undefined;
 
             return (
               <div
@@ -116,6 +121,8 @@ export function MessageList({
                   {...(onReact ? { onReact } : {})}
                   {...(onEdit ? { onEdit } : {})}
                   {...(onDelete ? { onDelete } : {})}
+                  {...(onReply ? { onReply } : {})}
+                  {...(replyToLabel ? { replyToLabel } : {})}
                   {...(senderUser ? { senderUser } : {})}
                 />
               </div>

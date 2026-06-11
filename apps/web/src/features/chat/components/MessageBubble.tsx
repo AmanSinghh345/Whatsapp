@@ -17,6 +17,8 @@ interface Props {
   onReact?: (messageId: string, emoji: MessageReactionEmoji) => void;
   onEdit?: (messageId: string, text: string) => void;
   onDelete?: (messageId: string) => void;
+  onReply?: (message: MessageDto) => void;
+  replyToLabel?: string;
   reactionPending?: boolean;
   editing?: boolean;
   deleting?: boolean;
@@ -33,6 +35,8 @@ export function MessageBubble({
   onReact,
   onEdit,
   onDelete,
+  onReply,
+  replyToLabel,
   reactionPending = false,
   editing = false,
   deleting = false,
@@ -70,6 +74,16 @@ export function MessageBubble({
     !message.deletedAt &&
     Boolean(onDelete) &&
     !message.id.startsWith("demo-");
+  const canReply =
+    !message.deletedAt &&
+    message.contentType !== "system" &&
+    Boolean(onReply) &&
+    !message.id.startsWith("demo-");
+  const quotePreview = message.replyTo?.deletedAt
+    ? "This message was deleted"
+    : message.replyTo?.contentType === "attachment"
+      ? (message.replyTo.text ?? "Attachment")
+      : (message.replyTo?.text ?? "Message");
 
   useEffect(() => {
     if (!isEditing) {
@@ -223,6 +237,16 @@ export function MessageBubble({
                 : "rounded-bl-md border border-white/5 bg-[#23262e] text-white shadow-black/25"
             } ${highlighted ? "ring-2 ring-amber-300/80" : ""}`}
           >
+            {message.replyTo ? (
+              <div className="mb-3 rounded-2xl border border-white/10 bg-black/15 px-3 py-2">
+                <p className="truncate text-xs font-bold text-emerald-100/90">
+                  {replyToLabel ?? "Message"}
+                </p>
+                <p className="mt-1 truncate text-xs leading-5 text-white/70">
+                  {quotePreview}
+                </p>
+              </div>
+            ) : null}
             {attachments.length > 0 && (
               <div className="mb-3 space-y-2">
                 {attachments.map((attachment) => {
@@ -406,6 +430,29 @@ export function MessageBubble({
                     <path d="M19 6l-1 14H6L5 6" />
                     <path d="M10 11v5" />
                     <path d="M14 11v5" />
+                  </svg>
+                </button>
+              ) : null}
+
+              {canReply ? (
+                <button
+                  type="button"
+                  onClick={() => onReply?.(message)}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-[#20232b] text-slate-400 shadow-sm transition hover:border-white/20 hover:bg-[#2a2d36] hover:text-slate-100"
+                  title="Reply"
+                  aria-label="Reply"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  >
+                    <path d="m9 14-4-4 4-4" />
+                    <path d="M5 10h9a5 5 0 0 1 5 5v3" />
                   </svg>
                 </button>
               ) : null}

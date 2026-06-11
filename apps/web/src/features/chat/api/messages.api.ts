@@ -18,6 +18,8 @@ export interface MessageDto {
   id: string;
   chatId: string;
   senderId: string;
+  replyToMessageId?: string;
+  replyTo?: MessageReplyPreviewDto;
   clientMessageId: string;
   contentType: "text" | "attachment" | "system";
   text?: string | null;
@@ -36,6 +38,14 @@ export interface MessageDto {
   createdAt: string;
   updatedAt: string;
   editedAt?: string;
+  deletedAt?: string;
+}
+
+export interface MessageReplyPreviewDto {
+  id: string;
+  senderId: string;
+  contentType: "text" | "attachment" | "system";
+  text?: string | null;
   deletedAt?: string;
 }
 
@@ -105,7 +115,8 @@ export async function searchMessages(
 
 export async function sendMessage(
   chatId: string,
-  text: string
+  text: string,
+  replyToMessageId?: string,
 ): Promise<MessageDto> {
   const headers = await getAuthHeaders();
 
@@ -113,6 +124,7 @@ export async function sendMessage(
     chatId,
     contentType: "text",
     text,
+    ...(replyToMessageId ? { replyToMessageId } : {}),
     // Idempotency key: unique per send attempt
     clientMessageId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   };
@@ -132,7 +144,8 @@ export async function sendMessage(
 export async function sendAttachmentMessage(
   chatId: string,
   attachmentIds: string[],
-  text?: string
+  text?: string,
+  replyToMessageId?: string,
 ): Promise<MessageDto> {
   const headers = await getAuthHeaders();
 
@@ -141,6 +154,7 @@ export async function sendAttachmentMessage(
     contentType: "attachment",
     attachmentIds,
     ...(text?.trim() ? { text: text.trim() } : {}),
+    ...(replyToMessageId ? { replyToMessageId } : {}),
     clientMessageId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   };
 

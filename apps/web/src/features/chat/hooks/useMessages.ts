@@ -19,6 +19,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
   const [sending, setSending] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [replyToMessage, setReplyToMessage] = useState<MessageDto | null>(null);
   const [pendingReactionMessageIds, setPendingReactionMessageIds] = useState<
     Set<string>
   >(() => new Set());
@@ -122,7 +123,12 @@ export function useMessages(chatId: string | null, currentUserId: string) {
       setSending(true);
       setError(null);
       try {
-        const msg = await sendMessage(chatId, text.trim());
+        const msg = await sendMessage(
+          chatId,
+          text.trim(),
+          replyToMessage?.id,
+        );
+        setReplyToMessage(null);
         // Dedup — socket broadcast may have already added this message
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
@@ -134,7 +140,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
         setSending(false);
       }
     },
-    [chatId]
+    [chatId, replyToMessage?.id]
   );
 
   const appendMessage = useCallback((msg: MessageDto) => {
@@ -147,6 +153,27 @@ export function useMessages(chatId: string | null, currentUserId: string) {
   const updateMessage = useCallback((msg: MessageDto) => {
     setMessages((prev) =>
       prev.map((message) => (message.id === msg.id ? msg : message)),
+    );
+  }, []);
+
+  const updateQuotedMessage = useCallback((msg: MessageDto) => {
+    setMessages((prev) =>
+      prev.map((message) => {
+        if (message.replyTo?.id !== msg.id) {
+          return message;
+        }
+
+        return {
+          ...message,
+          replyTo: {
+            id: msg.id,
+            senderId: msg.senderId,
+            contentType: msg.contentType,
+            ...(msg.deletedAt ? { deletedAt: msg.deletedAt } : {}),
+            ...(!msg.deletedAt && msg.text ? { text: msg.text } : {}),
+          },
+        };
+      }),
     );
   }, []);
 
@@ -249,7 +276,13 @@ export function useMessages(chatId: string | null, currentUserId: string) {
       setError(null);
       try {
         const asset = await uploadChatMedia(file);
-        const msg = await sendAttachmentMessage(chatId, [asset.id]);
+        const msg = await sendAttachmentMessage(
+          chatId,
+          [asset.id],
+          undefined,
+          replyToMessage?.id,
+        );
+        setReplyToMessage(null);
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
@@ -260,7 +293,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
         setSending(false);
       }
     },
-    [chatId],
+    [chatId, replyToMessage?.id],
   );
 
   const edit = useCallback(
@@ -310,16 +343,20 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     sending,
     editingMessageId,
     deletingMessageId,
+    replyToMessage,
     error,
     send,
     sendAttachment,
     appendMessage,
     updateMessage,
+    updateQuotedMessage,
     updateReceiptStatus,
     updateMessageReactions,
     reactToMessage,
     edit,
     deleteMessage: remove,
+    setReplyToMessage,
+    clearReplyToMessage: () => setReplyToMessage(null),
     pendingReactionMessageIds,
     bottomRef,
   };

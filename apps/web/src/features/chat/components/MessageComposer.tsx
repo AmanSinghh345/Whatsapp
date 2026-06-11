@@ -1,11 +1,15 @@
 "use client";
 
 import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import type { MessageDto } from "../api/messages.api";
 
 interface MessageComposerProps {
   onSend: (text: string) => void;
   onAttach?: ((file: File) => void) | undefined;
   onKeyStroke?: (() => void) | undefined;
+  replyTo?: MessageDto | null | undefined;
+  replyToLabel?: string | undefined;
+  onCancelReply?: (() => void) | undefined;
   disabled?: boolean | undefined;
   placeholder?: string | undefined;
 }
@@ -14,6 +18,9 @@ export function MessageComposer({
   onSend,
   onAttach,
   onKeyStroke,
+  replyTo = null,
+  replyToLabel,
+  onCancelReply,
   disabled = false,
   placeholder = "Type a message...",
 }: MessageComposerProps) {
@@ -56,9 +63,46 @@ export function MessageComposer({
       fileInputRef.current.value = "";
     }
   };
+  const replyPreview = replyTo?.deletedAt
+    ? "This message was deleted"
+    : replyTo?.contentType === "attachment"
+      ? (replyTo.text ?? "Attachment")
+      : (replyTo?.text ?? "");
 
   return (
     <div className="sticky bottom-0 border-t border-white/10 bg-[#17191f] px-4 py-4 shadow-2xl shadow-black/35 sm:px-6">
+      {replyTo ? (
+        <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
+          <div className="min-w-0 border-l-2 border-emerald-300/70 pl-3">
+            <p className="truncate text-xs font-bold text-emerald-200">
+              Replying to {replyToLabel ?? "message"}
+            </p>
+            <p className="mt-1 truncate text-sm text-slate-300">
+              {replyPreview || "Message"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancelReply}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white"
+            aria-label="Cancel reply"
+            title="Cancel reply"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+      ) : null}
       <div className="flex items-end gap-3">
         <input
           ref={fileInputRef}

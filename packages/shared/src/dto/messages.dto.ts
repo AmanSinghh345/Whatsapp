@@ -19,6 +19,8 @@ export type MessageDto = {
   id: Id;
   chatId: Id;
   senderId: Id;
+  replyToMessageId?: Id;
+  replyTo?: MessageReplyPreviewDto;
   clientMessageId: string;
   contentType: MessageContentType;
   text?: string;
@@ -29,6 +31,14 @@ export type MessageDto = {
   createdAt: ISODateString;
   updatedAt: ISODateString;
   editedAt?: ISODateString;
+  deletedAt?: ISODateString;
+};
+
+export type MessageReplyPreviewDto = {
+  id: Id;
+  senderId: Id;
+  contentType: MessageContentType;
+  text?: string;
   deletedAt?: ISODateString;
 };
 
@@ -50,6 +60,7 @@ export type SendMessageRequestDto = {
   contentType: Exclude<MessageContentType, "system">;
   text?: string;
   attachmentIds?: Id[];
+  replyToMessageId?: Id;
 };
 
 export type SearchMessagesRequestDto = {

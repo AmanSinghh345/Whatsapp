@@ -29,6 +29,21 @@ const ALLOWED_REACTION_EMOJIS: readonly MessageReactionEmoji[] = [
   "😢",
 ];
 
+const MESSAGE_INCLUDE = {
+  attachments: true,
+  receipts: true,
+  reactions: true,
+  replyTo: {
+    select: {
+      id: true,
+      senderId: true,
+      contentType: true,
+      textContent: true,
+      deletedAt: true,
+    },
+  },
+} as const;
+
 @Injectable()
 export class MessageService {
   private readonly logger = new Logger(MessageService.name);
@@ -44,15 +59,17 @@ export class MessageService {
     userId: string,
     request: SendMessageRequestDto,
   ): Promise<MessageDto> {
-    const { chatId, clientMessageId, contentType, text, attachmentIds } =
+    const { chatId, clientMessageId, contentType, text, attachmentIds, replyToMessageId } =
       request;
 
     this.assertUuid(chatId, "chatId");
+    this.assertOptionalUuid(replyToMessageId, "replyToMessageId");
     attachmentIds?.forEach((attachmentId) =>
       this.assertUuid(attachmentId, "attachmentIds"),
     );
 
     await this.chatService.getChat(chatId, userId);
+    await this.assertReplyTarget(chatId, replyToMessageId);
 
     if (contentType === "text" && !text?.trim()) {
       throw new BadRequestException(
@@ -84,7 +101,7 @@ export class MessageService {
 
     const existingMessage = await this.prisma.message.findFirst({
       where: { chatId, senderId: userId, clientMessageId },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
     });
 
     if (existingMessage) {
@@ -101,6 +118,7 @@ export class MessageService {
         clientMessageId,
         contentType,
         textContent: text ?? null,
+        ...(replyToMessageId ? { replyToMessageId } : {}),
         ...(attachmentIds?.length
           ? { attachments: { connect: attachmentIds.map((id) => ({ id })) } }
           : {}),
@@ -132,7 +150,7 @@ export class MessageService {
 
     const messageWithReceipts = await this.prisma.message.findUnique({
       where: { id: message.id },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
     });
     const dto = this.toMessageDto(messageWithReceipts ?? message);
 
@@ -163,7 +181,7 @@ export class MessageService {
 
     const messages = await this.prisma.message.findMany({
       where: { chatId },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
       orderBy: { createdAt: "desc" },
       take: limit + 1,
       ...(cursor && { skip: 1, cursor: { id: cursor } }),
@@ -186,7 +204,7 @@ export class MessageService {
 
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
     });
 
     if (!message) {
@@ -224,7 +242,7 @@ export class MessageService {
           mode: "insensitive",
         },
       },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
       orderBy: { createdAt: "desc" },
       take: limit + 1,
       ...(cursor && { skip: 1, cursor: { id: cursor } }),
@@ -396,7 +414,7 @@ export class MessageService {
 
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
     });
 
     if (!message) {
@@ -418,7 +436,7 @@ export class MessageService {
     const updated = await this.prisma.message.update({
       where: { id: messageId },
       data: { textContent: nextText },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
     });
     const dto = this.toMessageDto(updated);
 
@@ -439,7 +457,7 @@ export class MessageService {
 
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
     });
 
     if (!message) {
@@ -476,7 +494,7 @@ export class MessageService {
         textContent: null,
         reactions: { deleteMany: {} },
       },
-      include: { attachments: true, receipts: true, reactions: true },
+      include: MESSAGE_INCLUDE,
     });
     const dto = this.toMessageDto(updated);
 
@@ -502,6 +520,28 @@ export class MessageService {
   private assertOptionalUuid(value: string | undefined, fieldName: string): void {
     if (value !== undefined) {
       this.assertUuid(value, fieldName);
+    }
+  }
+
+  private async assertReplyTarget(
+    chatId: string,
+    replyToMessageId?: string,
+  ): Promise<void> {
+    if (!replyToMessageId) {
+      return;
+    }
+
+    const replyTo = await this.prisma.message.findUnique({
+      where: { id: replyToMessageId },
+      select: { id: true, chatId: true, contentType: true },
+    });
+
+    if (!replyTo || replyTo.chatId !== chatId) {
+      throw new BadRequestException("Reply target must be in this chat");
+    }
+
+    if (replyTo.contentType === "system") {
+      throw new BadRequestException("Cannot reply to system messages");
     }
   }
 
@@ -561,6 +601,24 @@ export class MessageService {
       id: message.id,
       chatId: message.chatId,
       senderId: message.senderId,
+      ...(message.replyToMessageId
+        ? { replyToMessageId: message.replyToMessageId }
+        : {}),
+      ...(message.replyTo
+        ? {
+            replyTo: {
+              id: message.replyTo.id,
+              senderId: message.replyTo.senderId,
+              contentType: message.replyTo.contentType,
+              text: message.replyTo.deletedAt
+                ? undefined
+                : message.replyTo.textContent,
+              ...(message.replyTo.deletedAt
+                ? { deletedAt: message.replyTo.deletedAt.toISOString() }
+                : {}),
+            },
+          }
+        : {}),
       clientMessageId: message.clientMessageId,
       contentType: message.contentType,
       text: message.deletedAt ? null : message.textContent,

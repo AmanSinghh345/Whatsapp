@@ -84,6 +84,7 @@ model Message {
   id              String             @id @default(uuid()) @db.Uuid
   chatId          String             @db.Uuid
   senderId        String             @db.Uuid
+  replyToMessageId String?           @db.Uuid
   clientMessageId String
   contentType     MessageContentType
   textContent     String?
@@ -93,6 +94,8 @@ model Message {
 
   chat        Chat                @relation(fields: [chatId], references: [id], onDelete: Cascade)
   sender      User                @relation("MessageSender", fields: [senderId], references: [id], onDelete: Restrict)
+  replyTo     Message?            @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies     Message[]           @relation("MessageReplies")
   attachments MessageAttachment[]
   receipts    MessageReceipt[]
   reactions   MessageReaction[]
@@ -100,6 +103,7 @@ model Message {
   @@unique([chatId, senderId, clientMessageId])
   @@index([chatId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([senderId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([replyToMessageId])
 }
 
 model MessageReaction {

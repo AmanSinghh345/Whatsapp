@@ -8,6 +8,7 @@ import { useTypingStore } from "../../realtime/typing.store";
 import { MessageComposer } from "./MessageComposer";
 import { MessageList } from "./MessageList";
 import type { ChatDto } from "@chat/shared";
+import { getUserLabel } from "./chat-display";
 
 interface Props {
   chatId: string;
@@ -29,16 +30,20 @@ export function MessageThread({
     sending,
     editingMessageId,
     deletingMessageId,
+    replyToMessage,
     error,
     send,
     sendAttachment,
     appendMessage,
     updateMessage,
+    updateQuotedMessage,
     updateReceiptStatus,
     updateMessageReactions,
     reactToMessage,
     edit,
     deleteMessage,
+    setReplyToMessage,
+    clearReplyToMessage,
     pendingReactionMessageIds,
     bottomRef,
   } = useMessages(chatId, currentUserId);
@@ -52,8 +57,14 @@ export function MessageThread({
     chatId,
     currentUserId,
     onMessage: handleIncoming,
-    onMessageEdited: updateMessage,
-    onMessageDeleted: updateMessage,
+    onMessageEdited: (message) => {
+      updateMessage(message);
+      updateQuotedMessage(message);
+    },
+    onMessageDeleted: (message) => {
+      updateMessage(message);
+      updateQuotedMessage(message);
+    },
     onReceiptUpdate: updateReceiptStatus,
     onReactionUpdate: updateMessageReactions,
   });
@@ -72,6 +83,13 @@ export function MessageThread({
     typingNames.length === 1
       ? `${typingNames[0]} is typing...`
       : `${typingNames.length} people are typing...`;
+  const replyToLabel = replyToMessage
+    ? getUserLabel(
+        chat?.members?.find((member) => member.userId === replyToMessage.senderId)
+          ?.user,
+        replyToMessage.senderId === currentUserId ? "You" : "Member",
+      )
+    : undefined;
 
   useEffect(() => {
     if (!highlightedMessageId) return;
@@ -94,6 +112,7 @@ export function MessageThread({
         onReact={reactToMessage}
         onEdit={edit}
         onDelete={deleteMessage}
+        onReply={setReplyToMessage}
         pendingReactionMessageIds={pendingReactionMessageIds}
         editingMessageId={editingMessageId}
         deletingMessageId={deletingMessageId}
@@ -112,6 +131,9 @@ export function MessageThread({
         onSend={send}
         onAttach={sendAttachment}
         onKeyStroke={onKeyStroke}
+        replyTo={replyToMessage}
+        replyToLabel={replyToLabel}
+        onCancelReply={clearReplyToMessage}
         disabled={sending}
       />
     </div>
