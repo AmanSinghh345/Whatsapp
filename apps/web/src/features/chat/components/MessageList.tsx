@@ -14,7 +14,9 @@ interface MessageListProps {
   typing?: boolean;
   typingLabel?: string;
   onReact?: (messageId: string, emoji: MessageReactionEmoji) => void;
+  onEdit?: (messageId: string, text: string) => void;
   pendingReactionMessageIds?: Set<string>;
+  editingMessageId?: string | null;
   highlightedMessageId?: string | null;
   bottomRef?: React.RefObject<HTMLDivElement | null>;
   messageRefs?: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
@@ -53,7 +55,9 @@ export function MessageList({
   typing = false,
   typingLabel = "Someone is typing...",
   onReact,
+  onEdit,
   pendingReactionMessageIds,
+  editingMessageId = null,
   highlightedMessageId = null,
   bottomRef,
   messageRefs,
@@ -103,7 +107,9 @@ export function MessageList({
                   senderLabel={getSenderLabel(chat, message.senderId)}
                   currentUserId={currentUserId}
                   reactionPending={pendingReactionMessageIds?.has(message.id) ?? false}
+                  editing={editingMessageId === message.id}
                   {...(onReact ? { onReact } : {})}
+                  {...(onEdit ? { onEdit } : {})}
                   {...(senderUser ? { senderUser } : {})}
                 />
               </div>

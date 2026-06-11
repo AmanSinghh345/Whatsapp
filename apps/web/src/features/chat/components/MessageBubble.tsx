@@ -1,5 +1,6 @@
 // apps/web/src/features/chat/components/MessageBubble.tsx
 
+import { useEffect, useRef, useState } from "react";
 import type { UserDto } from "@chat/shared";
 import { MessageDto, type MessageReactionEmoji } from "../api/messages.api";
 
@@ -14,7 +15,9 @@ interface Props {
   senderUser?: UserDto;
   currentUserId: string;
   onReact?: (messageId: string, emoji: MessageReactionEmoji) => void;
+  onEdit?: (messageId: string, text: string) => void;
   reactionPending?: boolean;
+  editing?: boolean;
 }
 
 export function MessageBubble({
@@ -26,8 +29,13 @@ export function MessageBubble({
   senderUser,
   currentUserId,
   onReact,
+  onEdit,
   reactionPending = false,
+  editing = false,
 }: Props) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(message.text ?? "");
+  const editRef = useRef<HTMLTextAreaElement | null>(null);
   const time = new Date(message.createdAt).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -47,6 +55,37 @@ export function MessageBubble({
   const currentUserReaction = reactions.find((reaction) =>
     reaction.userIds.includes(currentUserId),
   )?.emoji;
+  const canEdit =
+    isOwn &&
+    message.contentType === "text" &&
+    Boolean(onEdit) &&
+    !message.id.startsWith("demo-");
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEditValue(message.text ?? "");
+    }
+  }, [isEditing, message.text]);
+
+  useEffect(() => {
+    if (isEditing) {
+      editRef.current?.focus();
+      editRef.current?.select();
+    }
+  }, [isEditing]);
+
+  const saveEdit = () => {
+    const trimmedValue = editValue.trim();
+
+    if (!trimmedValue || trimmedValue === (message.text ?? "").trim()) {
+      setIsEditing(false);
+      setEditValue(message.text ?? "");
+      return;
+    }
+
+    onEdit?.(message.id, trimmedValue);
+    setIsEditing(false);
+  };
 
   if (message.contentType === "system") {
     return (
@@ -149,11 +188,55 @@ export function MessageBubble({
                 })}
               </div>
             )}
-            {message.text}
+            {isEditing ? (
+              <div className="space-y-2">
+                <textarea
+                  ref={editRef}
+                  value={editValue}
+                  rows={2}
+                  onChange={(event) => setEditValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      saveEdit();
+                    }
+
+                    if (event.key === "Escape") {
+                      setIsEditing(false);
+                      setEditValue(message.text ?? "");
+                    }
+                  }}
+                  className="min-h-20 w-full resize-none rounded-2xl border border-white/15 bg-black/15 px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-white/45 focus:border-white/35"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditing(false);
+                      setEditValue(message.text ?? "");
+                    }}
+                    className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-white/80 transition hover:bg-white/15"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveEdit}
+                    disabled={editing}
+                    className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            ) : (
+              message.text
+            )}
           </div>
           {!groupedWithPrevious ? (
             <span className="mt-2 flex items-center gap-1 px-1 text-[11px] text-slate-400">
               {time}
+              {message.editedAt ? <span>edited</span> : null}
               {isOwn ? <span className={tickColor}>{ticks}</span> : null}
             </span>
           ) : null}
@@ -197,10 +280,34 @@ export function MessageBubble({
 
           {onReact ? (
             <div
-              className={`relative mt-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 ${
+              className={`relative mt-1.5 flex gap-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 ${
                 isOwn ? "self-end" : "self-start"
               }`}
             >
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  disabled={editing}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-[#20232b] text-slate-400 shadow-sm transition hover:border-white/20 hover:bg-[#2a2d36] hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Edit message"
+                  aria-label="Edit message"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  >
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
+              ) : null}
+
               <button
                 type="button"
                 className="peer flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-[#20232b] text-slate-400 shadow-sm transition hover:border-white/20 hover:bg-[#2a2d36] hover:text-slate-100"

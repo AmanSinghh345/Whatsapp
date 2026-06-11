@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   fetchMessages,
+  editMessage,
   sendAttachmentMessage,
   sendMessage,
   toggleMessageReaction,
@@ -15,6 +16,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [pendingReactionMessageIds, setPendingReactionMessageIds] = useState<
     Set<string>
   >(() => new Set());
@@ -140,6 +142,12 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     });
   }, []);
 
+  const updateMessage = useCallback((msg: MessageDto) => {
+    setMessages((prev) =>
+      prev.map((message) => (message.id === msg.id ? msg : message)),
+    );
+  }, []);
+
   const updateReceiptStatus = useCallback(
     (messageId: string, status: "delivered" | "seen") => {
       setMessages((prev) =>
@@ -249,17 +257,44 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     [chatId],
   );
 
+  const edit = useCallback(
+    async (messageId: string, text: string) => {
+      const trimmedText = text.trim();
+
+      if (!trimmedText) {
+        setError("Message cannot be empty.");
+        return;
+      }
+
+      setEditingMessageId(messageId);
+      setError(null);
+
+      try {
+        const updated = await editMessage(messageId, trimmedText);
+        updateMessage(updated);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setEditingMessageId(null);
+      }
+    },
+    [updateMessage],
+  );
+
   return {
     messages,
     loading,
     sending,
+    editingMessageId,
     error,
     send,
     sendAttachment,
     appendMessage,
+    updateMessage,
     updateReceiptStatus,
     updateMessageReactions,
     reactToMessage,
+    edit,
     pendingReactionMessageIds,
     bottomRef,
   };

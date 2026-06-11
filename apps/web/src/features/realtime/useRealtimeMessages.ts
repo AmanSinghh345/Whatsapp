@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getSocket } from "./socket.client";
 import type {
+  MessageEditedDto,
   MessageDto,
   MessageReactionUpdatedDto,
 } from "../chat/api/messages.api";
@@ -10,6 +11,7 @@ interface Options {
   chatId: string | null;
   currentUserId: string;
   onMessage: (msg: MessageDto) => void;
+  onMessageEdited?: (msg: MessageDto) => void;
   onReceiptUpdate: (messageId: string, status: "delivered" | "seen") => void;
   onReactionUpdate: (
     messageId: string,
@@ -27,13 +29,16 @@ export function useRealtimeMessages({
   chatId,
   currentUserId,
   onMessage,
+  onMessageEdited,
   onReceiptUpdate,
   onReactionUpdate,
 }: Options) {
   const onMessageRef = useRef(onMessage);
+  const onMessageEditedRef = useRef(onMessageEdited);
   const onReceiptUpdateRef = useRef(onReceiptUpdate);
   const onReactionUpdateRef = useRef(onReactionUpdate);
   onMessageRef.current = onMessage;
+  onMessageEditedRef.current = onMessageEdited;
   onReceiptUpdateRef.current = onReceiptUpdate;
   onReactionUpdateRef.current = onReactionUpdate;
 
@@ -69,6 +74,11 @@ export function useRealtimeMessages({
           }
         };
 
+        const editHandler = (payload: MessageEditedDto) => {
+          if (payload.chatId !== chatId) return;
+          onMessageEditedRef.current?.(payload.message);
+        };
+
         const reactionHandler = (payload: MessageReactionUpdatedDto) => {
           console.log("[reaction] event received", payload);
           if (payload.chatId !== chatId) return;
@@ -76,6 +86,7 @@ export function useRealtimeMessages({
         };
 
         socket.on("message:new", handler);
+        socket.on("message:edited", editHandler);
         socket.on("message:receipt:updated", receiptHandler);
         socket.on("message:reactionUpdated", reactionHandler);
 
@@ -83,6 +94,7 @@ export function useRealtimeMessages({
         return () => {
           socket.off("connect", joinActiveChat);
           socket.off("message:new", handler);
+          socket.off("message:edited", editHandler);
           socket.off("message:receipt:updated", receiptHandler);
           socket.off("message:reactionUpdated", reactionHandler);
         };

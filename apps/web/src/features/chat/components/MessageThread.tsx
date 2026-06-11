@@ -27,13 +27,16 @@ export function MessageThread({
     messages,
     loading,
     sending,
+    editingMessageId,
     error,
     send,
     sendAttachment,
     appendMessage,
+    updateMessage,
     updateReceiptStatus,
     updateMessageReactions,
     reactToMessage,
+    edit,
     pendingReactionMessageIds,
     bottomRef,
   } = useMessages(chatId, currentUserId);
@@ -47,6 +50,7 @@ export function MessageThread({
     chatId,
     currentUserId,
     onMessage: handleIncoming,
+    onMessageEdited: updateMessage,
     onReceiptUpdate: updateReceiptStatus,
     onReactionUpdate: updateMessageReactions,
   });
@@ -85,7 +89,9 @@ export function MessageThread({
         typing={isTyping}
         typingLabel={typingLabel}
         onReact={reactToMessage}
+        onEdit={edit}
         pendingReactionMessageIds={pendingReactionMessageIds}
+        editingMessageId={editingMessageId}
         highlightedMessageId={highlightedMessageId}
         bottomRef={bottomRef}
         messageRefs={messageRefs}

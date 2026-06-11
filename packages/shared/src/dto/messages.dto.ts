@@ -27,6 +27,8 @@ export type MessageDto = {
   receipts?: MessageReceiptDto[];
   reactions?: MessageReactionSummaryDto[];
   createdAt: ISODateString;
+  updatedAt: ISODateString;
+  editedAt?: ISODateString;
 };
 
 export type MessageReceiptDto = {
@@ -78,4 +80,13 @@ export type MessageReactionUpdatedDto = {
   chatId: Id;
   messageId: Id;
   reactions: MessageReactionSummaryDto[];
+};
+
+export type EditMessageRequestDto = {
+  text: string;
+};
+
+export type MessageEditedDto = {
+  chatId: Id;
+  message: MessageDto;
 };

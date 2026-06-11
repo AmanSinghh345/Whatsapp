@@ -34,6 +34,8 @@ export interface MessageDto {
   receiptStatus?: "sent" | "delivered" | "seen";
   reactions?: MessageReactionSummaryDto[];
   createdAt: string;
+  updatedAt: string;
+  editedAt?: string;
 }
 
 export type MessageReactionEmoji = "👍" | "❤️" | "😂" | "😮" | "😢";
@@ -48,6 +50,11 @@ export interface MessageReactionUpdatedDto {
   chatId: string;
   messageId: string;
   reactions: MessageReactionSummaryDto[];
+}
+
+export interface MessageEditedDto {
+  chatId: string;
+  message: MessageDto;
 }
 
 export async function fetchMessages(
@@ -149,6 +156,25 @@ export async function deleteMessage(messageId: string): Promise<void> {
     headers,
   });
   if (!res.ok) throw new Error(`Failed to delete message: ${res.status}`);
+}
+
+export async function editMessage(
+  messageId: string,
+  text: string,
+): Promise<MessageDto> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/messages/${messageId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ text }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to edit message: ${res.status}`);
+  }
+
+  const body = await res.json();
+  return body.data;
 }
 
 export async function upsertMessageReceipt(

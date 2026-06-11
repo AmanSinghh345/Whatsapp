@@ -18,6 +18,7 @@ import type {
   MessageReactionEmoji,
   MessageReactionSummaryDto,
   MessageReactionUpdatedDto,
+  EditMessageRequestDto,
 } from "@chat/shared";
 
 const ALLOWED_REACTION_EMOJIS: readonly MessageReactionEmoji[] = [
@@ -377,6 +378,54 @@ export class MessageService {
     return payload;
   }
 
+  async editMessage(
+    messageId: string,
+    userId: string,
+    request: EditMessageRequestDto,
+  ): Promise<MessageDto> {
+    this.assertUuid(messageId, "messageId");
+
+    const nextText = request.text?.trim();
+    if (!nextText) {
+      throw new BadRequestException("Text content is required");
+    }
+
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { attachments: true, receipts: true, reactions: true },
+    });
+
+    if (!message) {
+      throw new NotFoundException(`Message ${messageId} not found`);
+    }
+
+    if (message.senderId !== userId) {
+      throw new ForbiddenException("You can only edit your own messages");
+    }
+
+    if (message.contentType !== "text") {
+      throw new BadRequestException("Only text messages can be edited");
+    }
+
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: { textContent: nextText },
+      include: { attachments: true, receipts: true, reactions: true },
+    });
+    const dto = this.toMessageDto(updated);
+
+    this.socketGateway.broadcastMessageToChat(
+      updated.chatId,
+      SocketEvents.messageEdited,
+      {
+        chatId: updated.chatId,
+        message: dto,
+      },
+    );
+
+    return dto;
+  }
+
   async deleteMessage(messageId: string, userId: string): Promise<void> {
     this.assertUuid(messageId, "messageId");
 
@@ -493,6 +542,10 @@ export class MessageService {
       })),
       reactions: this.toReactionSummaries(message.reactions ?? []),
       createdAt: message.createdAt.toISOString(),
+      updatedAt: message.updatedAt.toISOString(),
+      ...(message.updatedAt.getTime() !== message.createdAt.getTime()
+        ? { editedAt: message.updatedAt.toISOString() }
+        : {}),
     };
   }
 

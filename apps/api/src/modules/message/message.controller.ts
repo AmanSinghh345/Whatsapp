@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -24,6 +25,7 @@ import type {
   SearchMessagesResponseDto,
   MessageReactionEmoji,
   MessageReactionUpdatedDto,
+  EditMessageRequestDto,
 } from "@chat/shared";
 
 @Controller("messages")
@@ -165,6 +167,25 @@ export class MessageController {
       emoji,
     );
     return { data: result };
+  }
+
+  /**
+   * Edit own text message
+   * PATCH /api/messages/:messageId
+   * Body: { text: string }
+   */
+  @Patch(":messageId")
+  async editMessage(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("messageId", new ParseUUIDPipe()) messageId: string,
+    @Body() request: EditMessageRequestDto,
+  ): Promise<{ data: MessageDto }> {
+    const message = await this.messageService.editMessage(
+      messageId,
+      user.id ?? user.firebaseUid,
+      request,
+    );
+    return { data: message };
   }
 
   /**

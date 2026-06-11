@@ -336,6 +336,10 @@ export class CallService {
       })),
       reactions: [],
       createdAt: message.createdAt.toISOString(),
+      updatedAt: message.updatedAt.toISOString(),
+      ...(message.updatedAt.getTime() !== message.createdAt.getTime()
+        ? { editedAt: message.updatedAt.toISOString() }
+        : {}),
     };
   }
 

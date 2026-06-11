@@ -90,8 +90,30 @@ export function useLiveChatPreviews<TChat extends ChatDto>({
         });
       };
 
+      const onMessageEdited = (payload: { chatId: string; message: MessageDto }) => {
+        setChats((current) =>
+          current.map((chat) => {
+            if (
+              chat.id !== payload.chatId ||
+              chat.lastMessageAt !== payload.message.createdAt
+            ) {
+              return chat;
+            }
+
+            return {
+              ...chat,
+              lastMessagePreview: getMessagePreview(payload.message),
+            };
+          }),
+        );
+      };
+
       socket.on("message:new", onMessage);
-      cleanup = () => socket.off("message:new", onMessage);
+      socket.on("message:edited", onMessageEdited);
+      cleanup = () => {
+        socket.off("message:new", onMessage);
+        socket.off("message:edited", onMessageEdited);
+      };
     });
 
     return () => {

@@ -52,6 +52,9 @@ function DemoMessageThread({
     const otherUserId =
       getOtherMembers(chat, currentUserId)[0]?.userId ?? "demo-member";
     const now = Date.now();
+    const firstCreatedAt = new Date(now - 12 * 60 * 1000).toISOString();
+    const secondCreatedAt = new Date(now - 9 * 60 * 1000).toISOString();
+    const thirdCreatedAt = new Date(now - 4 * 60 * 1000).toISOString();
 
     return [
       {
@@ -62,7 +65,8 @@ function DemoMessageThread({
         contentType: "text",
         text: "The realtime shell is looking sharp.",
         receiptStatus: "seen",
-        createdAt: new Date(now - 12 * 60 * 1000).toISOString(),
+        createdAt: firstCreatedAt,
+        updatedAt: firstCreatedAt,
       },
       {
         id: `${chat.id}-seed-2`,
@@ -72,7 +76,8 @@ function DemoMessageThread({
         contentType: "text",
         text: "Good. I want it to feel fast, not fussy.",
         receiptStatus: "seen",
-        createdAt: new Date(now - 9 * 60 * 1000).toISOString(),
+        createdAt: secondCreatedAt,
+        updatedAt: secondCreatedAt,
       },
       {
         id: `${chat.id}-seed-3`,
@@ -82,7 +87,8 @@ function DemoMessageThread({
         contentType: "text",
         text: "Then this is the right amount of glow.",
         receiptStatus: "delivered",
-        createdAt: new Date(now - 4 * 60 * 1000).toISOString(),
+        createdAt: thirdCreatedAt,
+        updatedAt: thirdCreatedAt,
       },
     ];
   }, [chat, currentUserId]);
@@ -95,16 +101,20 @@ function DemoMessageThread({
         onSend={(text) => {
           setMessages((current) => [
             ...current,
-            {
-              id: `${chat.id}-${Date.now()}`,
-              chatId: chat.id,
-              senderId: currentUserId,
-              clientMessageId: `${Date.now()}`,
-              contentType: "text",
-              text,
-              receiptStatus: "sent",
-              createdAt: new Date().toISOString(),
-            },
+            (() => {
+              const createdAt = new Date().toISOString();
+              return {
+                id: `${chat.id}-${Date.now()}`,
+                chatId: chat.id,
+                senderId: currentUserId,
+                clientMessageId: `${Date.now()}`,
+                contentType: "text",
+                text,
+                receiptStatus: "sent",
+                createdAt,
+                updatedAt: createdAt,
+              };
+            })(),
           ]);
         }}
       />
