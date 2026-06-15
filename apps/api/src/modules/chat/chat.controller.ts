@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -19,6 +20,8 @@ import type {
   ChatDto,
   CreateDirectChatRequestDto,
   CreateGroupChatRequestDto,
+  UpdateGroupChatRequestDto,
+  UpdateChatMemberRoleRequestDto,
   ChatMemberDto,
 } from "@chat/shared";
 
@@ -131,6 +134,46 @@ export class ChatController {
       chatId,
       user.id ?? user.firebaseUid,
       memberUserIds,
+    );
+    return { data: chat };
+  }
+
+  /**
+   * Update group chat details
+   * PATCH /api/chats/:chatId
+   * Body: { title?: string, avatarUrl?: string | null }
+   */
+  @Patch(":chatId")
+  async updateChat(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("chatId") chatId: string,
+    @Body() body: UpdateGroupChatRequestDto,
+  ): Promise<{ data: ChatDto }> {
+    const chat = await this.chatService.updateGroupChat(
+      chatId,
+      user.id ?? user.firebaseUid,
+      body,
+    );
+    return { data: chat };
+  }
+
+  /**
+   * Update member role in group chat
+   * PATCH /api/chats/:chatId/members/:userId/role
+   * Body: { role: "admin" | "member" }
+   */
+  @Patch(":chatId/members/:userId/role")
+  async updateMemberRole(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("chatId") chatId: string,
+    @Param("userId") memberUserId: string,
+    @Body() body: UpdateChatMemberRoleRequestDto,
+  ): Promise<{ data: ChatDto }> {
+    const chat = await this.chatService.updateMemberRole(
+      chatId,
+      user.id ?? user.firebaseUid,
+      memberUserId,
+      body,
     );
     return { data: chat };
   }

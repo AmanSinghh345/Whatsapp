@@ -17,13 +17,23 @@ interface ChatSidebarProps {
   loading: boolean;
   error: string | null;
   isCreating: boolean;
+  isCreatingGroup: boolean;
+  isAddingGroupMember: boolean;
   phoneSearch: string;
+  groupTitle: string;
+  groupPhoneSearch: string;
+  groupMembers: UserDto[];
   isOpen: boolean;
   getPresence: (userId: string) => PresenceView | undefined;
   isOnline: (userId: string) => boolean;
   onSearchChange: (value: string) => void;
   onPhoneSearchChange: (value: string) => void;
+  onGroupTitleChange: (value: string) => void;
+  onGroupPhoneSearchChange: (value: string) => void;
   onCreateDirectChat: (event: React.FormEvent<HTMLFormElement>) => void;
+  onAddGroupMember: (event: React.FormEvent<HTMLFormElement>) => void;
+  onRemoveGroupMember: (userId: string) => void;
+  onCreateGroupChat: (event: React.FormEvent<HTMLFormElement>) => void;
   onSelectChat: (chatId: ChatDto["id"]) => void;
   onRefresh: () => void;
   onCloseMobile: () => void;
@@ -37,13 +47,23 @@ export function ChatSidebar({
   loading,
   error,
   isCreating,
+  isCreatingGroup,
+  isAddingGroupMember,
   phoneSearch,
+  groupTitle,
+  groupPhoneSearch,
+  groupMembers,
   isOpen,
   getPresence,
   isOnline,
   onSearchChange,
   onPhoneSearchChange,
+  onGroupTitleChange,
+  onGroupPhoneSearchChange,
   onCreateDirectChat,
+  onAddGroupMember,
+  onRemoveGroupMember,
+  onCreateGroupChat,
   onSelectChat,
   onRefresh,
   onCloseMobile,
@@ -122,6 +142,68 @@ export function ChatSidebar({
             {isCreating ? "Searching" : "Create chat"}
           </button>
         </form>
+
+        <div className="border-b border-white/10 bg-white/[0.025] p-4">
+          <label className="block text-xs font-medium text-slate-400">
+            New group
+            <input
+              value={groupTitle}
+              onChange={(event) => onGroupTitleChange(event.target.value)}
+              placeholder="Group name"
+              className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-emerald-300/50"
+            />
+          </label>
+
+          <form onSubmit={onAddGroupMember} className="mt-3 flex gap-2">
+            <label className="min-w-0 flex-1">
+              <span className="sr-only">Member phone number</span>
+              <input
+                value={groupPhoneSearch}
+                onChange={(event) => onGroupPhoneSearchChange(event.target.value)}
+                placeholder="Member phone"
+                className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-emerald-300/50"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={isAddingGroupMember}
+              className="h-10 shrink-0 rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 text-xs font-bold text-emerald-100 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isAddingGroupMember ? "Adding" : "Add"}
+            </button>
+          </form>
+
+          {groupMembers.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {groupMembers.map((member) => (
+                <button
+                  key={member.id}
+                  type="button"
+                  onClick={() => onRemoveGroupMember(member.id)}
+                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-red-300/30 hover:bg-red-500/10 hover:text-red-100"
+                  title="Remove member"
+                >
+                  <span className="max-w-[160px] truncate">
+                    {member.displayName}
+                  </span>
+                  <span aria-hidden="true" className="text-slate-500">
+                    x
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <form onSubmit={onCreateGroupChat}>
+            <button
+              type="submit"
+              disabled={isCreatingGroup}
+              className="mt-3 h-10 w-full rounded-xl bg-emerald-400 text-sm font-bold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCreatingGroup ? "Creating group" : "Create group"}
+            </button>
+          </form>
+        </div>
 
         {error ? (
           <div className="mx-4 mt-4 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">

@@ -5,11 +5,21 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatDto, ChatMemberDto, UserDto } from "@chat/shared";
 import { ProtectedRoute } from "../features/auth/components/protected-route";
 import { useAuthStore } from "../features/auth/store/auth.store";
-import { createDirectChat, fetchChats } from "../features/chat/api/chats.api";
+import {
+  addGroupMembers,
+  createDirectChat,
+  createGroupChat,
+  fetchChats,
+  leaveGroup,
+  removeGroupMember,
+  updateChatMemberRole,
+  updateGroupChat,
+} from "../features/chat/api/chats.api";
 import {
   searchMessages,
   type MessageDto,
 } from "../features/chat/api/messages.api";
+import { uploadGroupAvatar } from "../features/chat/api/media.api";
 import { CallPanel } from "../features/chat/components/CallPanel";
 import { MessageThread } from "../features/chat/components/MessageThread";
 import { useLiveChatPreviews } from "../features/chat/hooks/useLiveChatPreviews";
@@ -111,21 +121,24 @@ function Avatar({
   user,
   label,
   size = "md",
+  imageUrl,
 }: {
   user?: UserDto | undefined;
   label: string;
   size?: "sm" | "md" | "lg";
+  imageUrl?: string | undefined;
 }) {
   const sizeClass =
     size === "lg" ? "h-14 w-14 text-lg" : size === "sm" ? "h-11 w-11" : "h-12 w-12";
+  const avatarUrl = imageUrl ?? user?.avatarUrl;
 
   return (
     <div
       className={`flex ${sizeClass} shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-emerald-500 to-slate-700 text-sm font-semibold text-white ring-1 ring-white/10`}
     >
-      {user?.avatarUrl ? (
+      {avatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+        <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
       ) : (
         label.slice(0, 1).toUpperCase() || "U"
       )}
@@ -161,9 +174,25 @@ function ActiveChatPane({
   messageSearchLoading,
   messageSearchError,
   highlightedMessageId,
+  groupTitleDraft,
+  groupMemberPhoneSearch,
+  groupAvatarPending,
+  groupDetailsPending,
+  groupMemberActionPending,
+  leaveGroupPending,
+  removingGroupMemberIds,
+  updatingRoleMemberIds,
   onMessageSearchChange,
   onMessageSearch,
   onHighlightMessage,
+  onGroupTitleDraftChange,
+  onGroupAvatarSelected,
+  onSaveGroupDetails,
+  onGroupMemberPhoneSearchChange,
+  onAddGroupMember,
+  onRemoveGroupMember,
+  onUpdateGroupMemberRole,
+  onLeaveGroup,
 }: {
   chat: ChatDto;
   user: UserDto;
@@ -174,9 +203,28 @@ function ActiveChatPane({
   messageSearchLoading: boolean;
   messageSearchError: string | null;
   highlightedMessageId: string | null;
+  groupTitleDraft: string;
+  groupMemberPhoneSearch: string;
+  groupAvatarPending: boolean;
+  groupDetailsPending: boolean;
+  groupMemberActionPending: boolean;
+  leaveGroupPending: boolean;
+  removingGroupMemberIds: Set<string>;
+  updatingRoleMemberIds: Set<string>;
   onMessageSearchChange: (value: string) => void;
   onMessageSearch: (event: FormEvent<HTMLFormElement>) => void;
   onHighlightMessage: (messageId: string) => void;
+  onGroupTitleDraftChange: (value: string) => void;
+  onGroupAvatarSelected: (file: File) => void;
+  onSaveGroupDetails: (event: FormEvent<HTMLFormElement>) => void;
+  onGroupMemberPhoneSearchChange: (value: string) => void;
+  onAddGroupMember: (event: FormEvent<HTMLFormElement>) => void;
+  onRemoveGroupMember: (userId: string) => void;
+  onUpdateGroupMemberRole: (
+    userId: string,
+    role: ChatMemberDto["role"],
+  ) => void;
+  onLeaveGroup: () => void;
 }) {
   const otherMembers = getOtherMembers(chat, user.id);
   const otherUser = otherMembers[0]?.user;
@@ -200,6 +248,8 @@ function ActiveChatPane({
     activeCallPeer?.user?.email ??
     "Caller";
   const callAvailable = Boolean(callPeer);
+  const currentMember = chat.members?.find((member) => member.userId === user.id);
+  const canManageGroup = chat.type === "group" && currentMember?.role === "admin";
 
   return (
     <>
@@ -207,7 +257,12 @@ function ActiveChatPane({
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 items-center gap-4">
             <div className="relative">
-              <Avatar user={otherUser} label={title} size="md" />
+              <Avatar
+                user={chat.type === "group" ? undefined : otherUser}
+                label={title}
+                size="md"
+                imageUrl={chat.type === "group" ? chat.avatarUrl : undefined}
+              />
               <span className="absolute bottom-0 right-0 rounded-full bg-[#15171c] p-1">
                 <PresenceDot online={hasOnlineMember} size="md" />
               </span>
@@ -298,6 +353,155 @@ function ActiveChatPane({
         </div>
       </header>
 
+      {chat.type === "group" ? (
+        <section className="border-b border-white/10 bg-[#15171c] px-5 py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/80">
+                Members
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(chat.members ?? []).map((member) => {
+                  const memberName =
+                    member.user?.displayName ??
+                    member.user?.phoneE164 ??
+                    member.user?.email ??
+                    "Member";
+                  const isCurrentUser = member.userId === user.id;
+                  const canRemove =
+                    canManageGroup &&
+                    !isCurrentUser &&
+                    (chat.members?.length ?? 0) > 2;
+                  const nextRole = member.role === "admin" ? "member" : "admin";
+                  const canChangeRole = canManageGroup && !isCurrentUser;
+
+                  return (
+                    <div
+                      key={member.userId}
+                      className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-200"
+                    >
+                      <span className="max-w-[180px] truncate font-semibold">
+                        {memberName}
+                      </span>
+                      <span className="text-slate-500">{member.role}</span>
+                      {canChangeRole ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateGroupMemberRole(member.userId, nextRole)
+                          }
+                          disabled={updatingRoleMemberIds.has(member.userId)}
+                          className="ml-1 rounded-full border border-white/10 px-2 py-0.5 text-[11px] font-bold text-slate-300 transition hover:border-emerald-300/30 hover:bg-emerald-500/15 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          title={
+                            nextRole === "admin"
+                              ? `Promote ${memberName}`
+                              : `Demote ${memberName}`
+                          }
+                        >
+                          {nextRole === "admin" ? "Promote" : "Demote"}
+                        </button>
+                      ) : null}
+                      {canRemove ? (
+                        <button
+                          type="button"
+                          onClick={() => onRemoveGroupMember(member.userId)}
+                          disabled={removingGroupMemberIds.has(member.userId)}
+                          className="ml-1 rounded-full px-1.5 text-slate-500 transition hover:bg-red-500/15 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label={`Remove ${memberName}`}
+                          title={`Remove ${memberName}`}
+                        >
+                          x
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid min-w-0 gap-2 xl:w-[360px]">
+                <button
+                  type="button"
+                  onClick={onLeaveGroup}
+                  disabled={leaveGroupPending}
+                  className="h-10 w-full rounded-xl border border-red-300/20 bg-red-500/10 text-sm font-bold text-red-100 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {leaveGroupPending ? "Leaving" : "Leave group"}
+                </button>
+
+              {canManageGroup ? (
+                <>
+                <label className="flex h-10 cursor-pointer items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-sm font-bold text-slate-100 transition hover:bg-white/[0.1]">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    disabled={groupAvatarPending}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+
+                      if (file) {
+                        onGroupAvatarSelected(file);
+                      }
+                    }}
+                  />
+                  {groupAvatarPending ? "Uploading avatar" : "Change avatar"}
+                </label>
+
+                <form onSubmit={onSaveGroupDetails} className="flex min-w-0 gap-2">
+                  <label htmlFor="group-title-draft" className="sr-only">
+                    Group name
+                  </label>
+                  <input
+                    id="group-title-draft"
+                    value={groupTitleDraft}
+                    onChange={(event) =>
+                      onGroupTitleDraftChange(event.target.value)
+                    }
+                    placeholder="Group name"
+                    className="h-10 min-w-0 flex-1 rounded-xl border border-white/10 bg-[#20232b] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                  />
+                  <button
+                    type="submit"
+                    disabled={groupDetailsPending}
+                    className="h-10 shrink-0 rounded-xl border border-white/10 bg-white/[0.06] px-4 text-sm font-bold text-slate-100 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {groupDetailsPending ? "Saving" : "Save"}
+                  </button>
+                </form>
+
+                <form
+                  onSubmit={onAddGroupMember}
+                  className="flex min-w-0 gap-2"
+                >
+                  <label htmlFor="active-group-member-phone" className="sr-only">
+                    Add group member by phone
+                  </label>
+                  <input
+                    id="active-group-member-phone"
+                    value={groupMemberPhoneSearch}
+                    onChange={(event) =>
+                      onGroupMemberPhoneSearchChange(event.target.value)
+                    }
+                    placeholder="Add member phone"
+                    className="h-10 min-w-0 flex-1 rounded-xl border border-white/10 bg-[#20232b] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                  />
+                  <button
+                    type="submit"
+                    disabled={groupMemberActionPending}
+                    className="h-10 shrink-0 rounded-xl bg-emerald-500 px-4 text-sm font-bold text-[#07110d] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                  {groupMemberActionPending ? "Adding" : "Add"}
+                </button>
+              </form>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <CallPanel
         phase={call.phase}
         peerName={activeCallPeerName}
@@ -330,8 +534,26 @@ export default function HomePage() {
   const [chats, setChats] = useState<ChatDto[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [phoneSearch, setPhoneSearch] = useState("");
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupPhoneSearch, setGroupPhoneSearch] = useState("");
+  const [groupMembers, setGroupMembers] = useState<UserDto[]>([]);
+  const [activeGroupMemberPhoneSearch, setActiveGroupMemberPhoneSearch] =
+    useState("");
+  const [activeGroupTitleDraft, setActiveGroupTitleDraft] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [isAddingGroupMember, setIsAddingGroupMember] = useState(false);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [isManagingGroupMember, setIsManagingGroupMember] = useState(false);
+  const [isUpdatingGroupDetails, setIsUpdatingGroupDetails] = useState(false);
+  const [isUpdatingGroupAvatar, setIsUpdatingGroupAvatar] = useState(false);
+  const [isLeavingGroup, setIsLeavingGroup] = useState(false);
+  const [removingGroupMemberIds, setRemovingGroupMemberIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [updatingRoleMemberIds, setUpdatingRoleMemberIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [messageSearchResults, setMessageSearchResults] = useState<MessageDto[]>([]);
@@ -426,6 +648,287 @@ export default function HomePage() {
     }
   }
 
+  async function handleAddGroupMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedPhone = groupPhoneSearch.trim();
+    if (!trimmedPhone) {
+      setError("Enter a phone number to add to the group.");
+      return;
+    }
+
+    setIsAddingGroupMember(true);
+    setError(null);
+
+    try {
+      const foundUser = await searchUserByPhone(trimmedPhone);
+      if (foundUser.id === user?.id) {
+        throw new Error("You are already included as the group admin.");
+      }
+
+      setGroupMembers((current) => {
+        if (current.some((member) => member.id === foundUser.id)) {
+          return current;
+        }
+
+        return [...current, foundUser];
+      });
+      setGroupPhoneSearch("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to add member.");
+    } finally {
+      setIsAddingGroupMember(false);
+    }
+  }
+
+  async function handleCreateGroupChat(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedTitle = groupTitle.trim();
+    if (!trimmedTitle) {
+      setError("Enter a group name.");
+      return;
+    }
+
+    if (groupMembers.length === 0) {
+      setError("Add at least one member to create a group.");
+      return;
+    }
+
+    setIsCreatingGroup(true);
+    setError(null);
+
+    try {
+      const chat = await createGroupChat({
+        title: trimmedTitle,
+        memberUserIds: groupMembers.map((member) => member.id),
+      });
+      setChats((current) => [chat, ...current.filter((item) => item.id !== chat.id)]);
+      setSelectedChatId(chat.id);
+      setGroupTitle("");
+      setGroupPhoneSearch("");
+      setGroupMembers([]);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to create group.");
+    } finally {
+      setIsCreatingGroup(false);
+    }
+  }
+
+  async function handleAddMemberToSelectedGroup(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+    const trimmedPhone = activeGroupMemberPhoneSearch.trim();
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    if (!trimmedPhone) {
+      setError("Enter a phone number to add to this group.");
+      return;
+    }
+
+    setIsManagingGroupMember(true);
+    setError(null);
+
+    try {
+      const foundUser = await searchUserByPhone(trimmedPhone);
+      if (selectedChat.members?.some((member) => member.userId === foundUser.id)) {
+        throw new Error("That user is already in this group.");
+      }
+
+      const updatedChat = await addGroupMembers(selectedChat.id, [foundUser.id]);
+      setChats((current) =>
+        current.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat)),
+      );
+      setActiveGroupMemberPhoneSearch("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to add member.");
+    } finally {
+      setIsManagingGroupMember(false);
+    }
+  }
+
+  async function handleRemoveMemberFromSelectedGroup(userId: string) {
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    setRemovingGroupMemberIds((current) => {
+      const next = new Set(current);
+      next.add(userId);
+      return next;
+    });
+    setError(null);
+
+    try {
+      await removeGroupMember(selectedChat.id, userId);
+      const updatedChat = {
+        ...selectedChat,
+        ...(selectedChat.members
+          ? {
+              members: selectedChat.members.filter(
+                (member) => member.userId !== userId,
+              ),
+            }
+          : {}),
+        ...(selectedChat.memberIds
+          ? {
+              memberIds: selectedChat.memberIds.filter(
+                (memberId) => memberId !== userId,
+              ),
+            }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      setChats((current) =>
+        current.map((chat) => (chat.id === selectedChat.id ? updatedChat : chat)),
+      );
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to remove member.",
+      );
+    } finally {
+      setRemovingGroupMemberIds((current) => {
+        const next = new Set(current);
+        next.delete(userId);
+        return next;
+      });
+    }
+  }
+
+  async function handleUpdateSelectedGroupDetails(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+    const title = activeGroupTitleDraft.trim();
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    if (!title) {
+      setError("Enter a group name.");
+      return;
+    }
+
+    if (title === (selectedChat.title ?? "")) {
+      return;
+    }
+
+    setIsUpdatingGroupDetails(true);
+    setError(null);
+
+    try {
+      const updatedChat = await updateGroupChat(selectedChat.id, { title });
+      setChats((current) =>
+        current.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat)),
+      );
+      setActiveGroupTitleDraft(updatedChat.title ?? "");
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to update group.",
+      );
+    } finally {
+      setIsUpdatingGroupDetails(false);
+    }
+  }
+
+  async function handleUpdateSelectedGroupAvatar(file: File) {
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    setIsUpdatingGroupAvatar(true);
+    setError(null);
+
+    try {
+      const avatar = await uploadGroupAvatar(file);
+      const updatedChat = await updateGroupChat(selectedChat.id, {
+        avatarUrl: avatar.url,
+      });
+      setChats((current) =>
+        current.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat)),
+      );
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to update avatar.",
+      );
+    } finally {
+      setIsUpdatingGroupAvatar(false);
+    }
+  }
+
+  async function handleUpdateMemberRole(
+    userId: string,
+    role: ChatMemberDto["role"],
+  ) {
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    setUpdatingRoleMemberIds((current) => {
+      const next = new Set(current);
+      next.add(userId);
+      return next;
+    });
+    setError(null);
+
+    try {
+      const updatedChat = await updateChatMemberRole(selectedChat.id, userId, role);
+      setChats((current) =>
+        current.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat)),
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to update role.");
+    } finally {
+      setUpdatingRoleMemberIds((current) => {
+        const next = new Set(current);
+        next.delete(userId);
+        return next;
+      });
+    }
+  }
+
+  async function handleLeaveSelectedGroup() {
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+
+    if (!selectedChat || selectedChat.type !== "group" || !user) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Leave ${selectedChat.title ?? "this group"}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setIsLeavingGroup(true);
+    setError(null);
+
+    try {
+      await leaveGroup(selectedChat.id, user.id);
+      const nextChats = chats.filter((chat) => chat.id !== selectedChat.id);
+      setChats(nextChats);
+      setSelectedChatId(nextChats[0]?.id ?? null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to leave group.");
+    } finally {
+      setIsLeavingGroup(false);
+    }
+  }
+
   async function handleMessageSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -499,7 +1002,12 @@ export default function HomePage() {
     setMessageSearchResults([]);
     setMessageSearchError(null);
     setHighlightedMessageId(null);
-  }, [selectedChatId]);
+    setActiveGroupMemberPhoneSearch("");
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+    setActiveGroupTitleDraft(
+      selectedChat?.type === "group" ? (selectedChat.title ?? "") : "",
+    );
+  }, [chats, selectedChatId]);
 
   return (
     <ProtectedRoute>
@@ -568,6 +1076,74 @@ export default function HomePage() {
               </div>
             </form>
 
+            <div className="rounded-2xl border border-white/8 bg-[#20232b] p-3 shadow-inner shadow-black/20">
+              <form onSubmit={handleCreateGroupChat} className="space-y-3">
+                <label htmlFor="group-title" className="sr-only">
+                  Group name
+                </label>
+                <input
+                  id="group-title"
+                  value={groupTitle}
+                  onChange={(event) => setGroupTitle(event.target.value)}
+                  placeholder="Group name"
+                  className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                />
+
+                {groupMembers.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {groupMembers.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() =>
+                          setGroupMembers((current) =>
+                            current.filter((item) => item.id !== member.id),
+                          )
+                        }
+                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-red-300/30 hover:bg-red-500/10 hover:text-red-100"
+                        title="Remove member"
+                      >
+                        <span className="max-w-[180px] truncate">
+                          {member.displayName}
+                        </span>
+                        <span aria-hidden="true" className="text-slate-500">
+                          x
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <button
+                  type="submit"
+                  disabled={isCreatingGroup}
+                  className="h-10 w-full rounded-xl bg-emerald-500 text-sm font-bold text-[#07110d] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isCreatingGroup ? "Creating..." : "Create group"}
+                </button>
+              </form>
+
+              <form onSubmit={handleAddGroupMember} className="mt-3 flex gap-2">
+                <label htmlFor="group-member-phone" className="sr-only">
+                  Member phone
+                </label>
+                <input
+                  id="group-member-phone"
+                  value={groupPhoneSearch}
+                  onChange={(event) => setGroupPhoneSearch(event.target.value)}
+                  placeholder="Add member phone"
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                />
+                <button
+                  type="submit"
+                  disabled={isAddingGroupMember}
+                  className="h-10 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isAddingGroupMember ? "..." : "Add"}
+                </button>
+              </form>
+            </div>
+
             <div className="flex items-center gap-3 text-sm font-semibold text-slate-400">
               <button type="button" className="flex items-center gap-2 rounded-2xl bg-emerald-500/15 px-4 py-3 text-emerald-400">
                 <span className="h-4 w-4 rounded border border-emerald-400" />
@@ -627,7 +1203,14 @@ export default function HomePage() {
                     >
                       <div className="flex items-center gap-3">
                         <div className="relative">
-                          <Avatar user={otherUser} label={title} size="md" />
+                          <Avatar
+                            user={chat.type === "group" ? undefined : otherUser}
+                            label={title}
+                            size="md"
+                            imageUrl={
+                              chat.type === "group" ? chat.avatarUrl : undefined
+                            }
+                          />
                           <span className="absolute bottom-0 right-0 rounded-full bg-[#17191f] p-1">
                             <PresenceDot online={hasOnlineMember} size="md" />
                           </span>
@@ -704,9 +1287,25 @@ export default function HomePage() {
               messageSearchLoading={messageSearchLoading}
               messageSearchError={messageSearchError}
               highlightedMessageId={highlightedMessageId}
+              groupTitleDraft={activeGroupTitleDraft}
+              groupMemberPhoneSearch={activeGroupMemberPhoneSearch}
+              groupAvatarPending={isUpdatingGroupAvatar}
+              groupDetailsPending={isUpdatingGroupDetails}
+              groupMemberActionPending={isManagingGroupMember}
+              leaveGroupPending={isLeavingGroup}
+              removingGroupMemberIds={removingGroupMemberIds}
+              updatingRoleMemberIds={updatingRoleMemberIds}
               onMessageSearchChange={setMessageSearchQuery}
               onMessageSearch={handleMessageSearch}
               onHighlightMessage={setHighlightedMessageId}
+              onGroupTitleDraftChange={setActiveGroupTitleDraft}
+              onGroupAvatarSelected={handleUpdateSelectedGroupAvatar}
+              onSaveGroupDetails={handleUpdateSelectedGroupDetails}
+              onGroupMemberPhoneSearchChange={setActiveGroupMemberPhoneSearch}
+              onAddGroupMember={handleAddMemberToSelectedGroup}
+              onRemoveGroupMember={handleRemoveMemberFromSelectedGroup}
+              onUpdateGroupMemberRole={handleUpdateMemberRole}
+              onLeaveGroup={handleLeaveSelectedGroup}
             />
           ) : (
             <>

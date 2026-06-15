@@ -35,3 +35,12 @@ export type CreateGroupChatRequestDto = {
   title: string;
   memberUserIds: Id[];
 };
+
+export type UpdateGroupChatRequestDto = {
+  title?: string;
+  avatarUrl?: string | null;
+};
+
+export type UpdateChatMemberRoleRequestDto = {
+  role: ChatMemberRole;
+};

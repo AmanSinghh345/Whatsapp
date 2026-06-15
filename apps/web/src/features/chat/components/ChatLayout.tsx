@@ -15,14 +15,24 @@ interface ChatLayoutProps {
   loading: boolean;
   error: string | null;
   isCreating: boolean;
+  isCreatingGroup: boolean;
+  isAddingGroupMember: boolean;
   phoneSearch: string;
+  groupTitle: string;
+  groupPhoneSearch: string;
+  groupMembers: UserDto[];
   sidebarOpen: boolean;
   infoPanelOpen: boolean;
   getPresence: (userId: string) => PresenceView | undefined;
   isOnline: (userId: string) => boolean;
   onSearchChange: (value: string) => void;
   onPhoneSearchChange: (value: string) => void;
+  onGroupTitleChange: (value: string) => void;
+  onGroupPhoneSearchChange: (value: string) => void;
   onCreateDirectChat: (event: React.FormEvent<HTMLFormElement>) => void;
+  onAddGroupMember: (event: React.FormEvent<HTMLFormElement>) => void;
+  onRemoveGroupMember: (userId: string) => void;
+  onCreateGroupChat: (event: React.FormEvent<HTMLFormElement>) => void;
   onSelectChat: (chatId: ChatDto["id"]) => void;
   onRefresh: () => void;
   onOpenSidebar: () => void;
@@ -39,14 +49,24 @@ export function ChatLayout({
   loading,
   error,
   isCreating,
+  isCreatingGroup,
+  isAddingGroupMember,
   phoneSearch,
+  groupTitle,
+  groupPhoneSearch,
+  groupMembers,
   sidebarOpen,
   infoPanelOpen,
   getPresence,
   isOnline,
   onSearchChange,
   onPhoneSearchChange,
+  onGroupTitleChange,
+  onGroupPhoneSearchChange,
   onCreateDirectChat,
+  onAddGroupMember,
+  onRemoveGroupMember,
+  onCreateGroupChat,
   onSelectChat,
   onRefresh,
   onOpenSidebar,
@@ -64,13 +84,23 @@ export function ChatLayout({
         loading={loading}
         error={error}
         isCreating={isCreating}
+        isCreatingGroup={isCreatingGroup}
+        isAddingGroupMember={isAddingGroupMember}
         phoneSearch={phoneSearch}
+        groupTitle={groupTitle}
+        groupPhoneSearch={groupPhoneSearch}
+        groupMembers={groupMembers}
         isOpen={sidebarOpen}
         getPresence={getPresence}
         isOnline={isOnline}
         onSearchChange={onSearchChange}
         onPhoneSearchChange={onPhoneSearchChange}
+        onGroupTitleChange={onGroupTitleChange}
+        onGroupPhoneSearchChange={onGroupPhoneSearchChange}
         onCreateDirectChat={onCreateDirectChat}
+        onAddGroupMember={onAddGroupMember}
+        onRemoveGroupMember={onRemoveGroupMember}
+        onCreateGroupChat={onCreateGroupChat}
         onSelectChat={onSelectChat}
         onRefresh={onRefresh}
         onCloseMobile={onCloseSidebar}

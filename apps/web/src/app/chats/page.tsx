@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChatDto } from "@chat/shared";
+import type { ChatDto, UserDto } from "@chat/shared";
 import { ProtectedRoute } from "../../features/auth/components/protected-route";
 import { useAuthStore } from "../../features/auth/store/auth.store";
-import { createDirectChat, fetchChats } from "../../features/chat/api/chats.api";
+import {
+  createDirectChat,
+  createGroupChat,
+  fetchChats,
+} from "../../features/chat/api/chats.api";
 import { ChatLayout } from "../../features/chat/components/ChatLayout";
 import {
   getOtherMemberIds,
@@ -95,8 +99,13 @@ export default function ChatsPage() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [phoneSearch, setPhoneSearch] = useState("");
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupPhoneSearch, setGroupPhoneSearch] = useState("");
+  const [groupMembers, setGroupMembers] = useState<UserDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [isAddingGroupMember, setIsAddingGroupMember] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [infoPanelOpen, setInfoPanelOpen] = useState(true);
@@ -192,6 +201,74 @@ export default function ChatsPage() {
     }
   }
 
+  async function handleAddGroupMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedPhone = groupPhoneSearch.trim();
+    if (!trimmedPhone) {
+      setError("Enter a phone number to add to the group.");
+      return;
+    }
+
+    setIsAddingGroupMember(true);
+    setError(null);
+
+    try {
+      const foundUser = await searchUserByPhone(trimmedPhone);
+      if (foundUser.id === user?.id) {
+        throw new Error("You are already included as the group admin.");
+      }
+
+      setGroupMembers((current) => {
+        if (current.some((member) => member.id === foundUser.id)) {
+          return current;
+        }
+
+        return [...current, foundUser];
+      });
+      setGroupPhoneSearch("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to add member.");
+    } finally {
+      setIsAddingGroupMember(false);
+    }
+  }
+
+  async function handleCreateGroupChat(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedTitle = groupTitle.trim();
+    if (!trimmedTitle) {
+      setError("Enter a group name.");
+      return;
+    }
+
+    if (groupMembers.length === 0) {
+      setError("Add at least one member to create a group.");
+      return;
+    }
+
+    setIsCreatingGroup(true);
+    setError(null);
+
+    try {
+      const chat = await createGroupChat({
+        title: trimmedTitle,
+        memberUserIds: groupMembers.map((member) => member.id),
+      });
+      setChats((current) => [chat, ...current.filter((item) => item.id !== chat.id)]);
+      setSelectedChatId(chat.id);
+      setGroupTitle("");
+      setGroupPhoneSearch("");
+      setGroupMembers([]);
+      setSidebarOpen(false);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to create group.");
+    } finally {
+      setIsCreatingGroup(false);
+    }
+  }
+
   useEffect(() => {
     if (user) {
       void loadChats();
@@ -241,14 +318,28 @@ export default function ChatsPage() {
         loading={loading}
         error={error}
         isCreating={isCreating}
+        isCreatingGroup={isCreatingGroup}
+        isAddingGroupMember={isAddingGroupMember}
         phoneSearch={phoneSearch}
+        groupTitle={groupTitle}
+        groupPhoneSearch={groupPhoneSearch}
+        groupMembers={groupMembers}
         sidebarOpen={sidebarOpen}
         infoPanelOpen={infoPanelOpen}
         getPresence={getPresence}
         isOnline={isOnline}
         onSearchChange={setSearchQuery}
         onPhoneSearchChange={setPhoneSearch}
+        onGroupTitleChange={setGroupTitle}
+        onGroupPhoneSearchChange={setGroupPhoneSearch}
         onCreateDirectChat={handleCreateDirectChat}
+        onAddGroupMember={handleAddGroupMember}
+        onRemoveGroupMember={(userId) =>
+          setGroupMembers((current) =>
+            current.filter((member) => member.id !== userId),
+          )
+        }
+        onCreateGroupChat={handleCreateGroupChat}
         onSelectChat={(chatId: ChatDto["id"]) => setSelectedChatId(chatId)}
         onRefresh={() => void loadChats()}
         onOpenSidebar={() => setSidebarOpen(true)}

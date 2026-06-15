@@ -1,4 +1,10 @@
-import type { ChatDto, CreateDirectChatRequestDto } from "@chat/shared";
+import type {
+  ChatDto,
+  ChatMemberRole,
+  CreateDirectChatRequestDto,
+  CreateGroupChatRequestDto,
+  UpdateGroupChatRequestDto,
+} from "@chat/shared";
 import { getFirebaseAuth } from "../../auth/lib/firebase-client";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -56,6 +62,104 @@ export async function createDirectChat(
 
   if (!response.ok) {
     throw new Error(`Failed to create chat: ${response.status}`);
+  }
+
+  const result = (await response.json()) as ChatResponse;
+  return result.data;
+}
+
+export async function createGroupChat(
+  request: CreateGroupChatRequestDto,
+): Promise<ChatDto> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create group: ${response.status}`);
+  }
+
+  const result = (await response.json()) as ChatResponse;
+  return result.data;
+}
+
+export async function addGroupMembers(
+  chatId: string,
+  memberUserIds: string[],
+): Promise<ChatDto> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats/${chatId}/members`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ memberUserIds }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to add group member: ${response.status}`);
+  }
+
+  const result = (await response.json()) as ChatResponse;
+  return result.data;
+}
+
+export async function removeGroupMember(
+  chatId: string,
+  userId: string,
+): Promise<void> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats/${chatId}/members/${userId}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to remove group member: ${response.status}`);
+  }
+}
+
+export async function leaveGroup(
+  chatId: string,
+  currentUserId: string,
+): Promise<void> {
+  await removeGroupMember(chatId, currentUserId);
+}
+
+export async function updateGroupChat(
+  chatId: string,
+  request: UpdateGroupChatRequestDto,
+): Promise<ChatDto> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats/${chatId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update group: ${response.status}`);
+  }
+
+  const result = (await response.json()) as ChatResponse;
+  return result.data;
+}
+
+export async function updateChatMemberRole(
+  chatId: string,
+  userId: string,
+  role: ChatMemberRole,
+): Promise<ChatDto> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats/${chatId}/members/${userId}/role`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ role }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update member role: ${response.status}`);
   }
 
   const result = (await response.json()) as ChatResponse;

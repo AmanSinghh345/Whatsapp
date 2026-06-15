@@ -9,6 +9,8 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import type {
   CreateDirectChatRequestDto,
   CreateGroupChatRequestDto,
+  UpdateGroupChatRequestDto,
+  UpdateChatMemberRoleRequestDto,
   ChatDto,
   ChatMemberDto,
 } from "@chat/shared";
@@ -90,8 +92,8 @@ export class ChatService {
       throw new BadRequestException("Chat title is required");
     }
 
-    if (memberUserIds.length < 2) {
-      throw new BadRequestException("Group chat must have at least 2 members");
+    if (memberUserIds.length < 1) {
+      throw new BadRequestException("Group chat must have at least one member");
     }
 
     // Ensure creator is in members list
@@ -110,7 +112,7 @@ export class ChatService {
     const chat = await this.prisma.chat.create({
       data: {
         type: "group",
-        title,
+        title: title.trim(),
         members: {
           createMany: {
             data: allMemberIds.map((userId) => ({
@@ -291,6 +293,126 @@ export class ChatService {
   }
 
   /**
+   * Update group chat details
+   */
+  async updateGroupChat(
+    chatId: string,
+    currentUserId: string,
+    request: UpdateGroupChatRequestDto,
+  ): Promise<ChatDto> {
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      include: { members: { include: { user: true } } },
+    });
+
+    if (!chat) {
+      throw new NotFoundException(`Chat ${chatId} not found`);
+    }
+
+    if (chat.type !== "group") {
+      throw new BadRequestException("Cannot edit direct chat details");
+    }
+
+    const userMembership = chat.members.find((m) => m.userId === currentUserId);
+    if (!userMembership || userMembership.role !== "admin") {
+      throw new ForbiddenException("Only admins can edit group details");
+    }
+
+    const data: { title?: string; avatarUrl?: string | null } = {};
+
+    if (request.title !== undefined) {
+      const title = request.title.trim();
+
+      if (!title) {
+        throw new BadRequestException("Group title is required");
+      }
+
+      data.title = title;
+    }
+
+    if (request.avatarUrl !== undefined) {
+      data.avatarUrl = request.avatarUrl?.trim() || null;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return this.toChatDto(chat);
+    }
+
+    const updated = await this.prisma.chat.update({
+      where: { id: chatId },
+      data,
+      include: { members: { include: { user: true } } },
+    });
+
+    this.logger.log(`Updated group chat ${chatId}`);
+    return this.toChatDto(updated);
+  }
+
+  /**
+   * Update group member role
+   */
+  async updateMemberRole(
+    chatId: string,
+    currentUserId: string,
+    memberUserId: string,
+    request: UpdateChatMemberRoleRequestDto,
+  ): Promise<ChatDto> {
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      include: { members: { include: { user: true } } },
+    });
+
+    if (!chat) {
+      throw new NotFoundException(`Chat ${chatId} not found`);
+    }
+
+    if (chat.type !== "group") {
+      throw new BadRequestException("Cannot edit roles in a direct chat");
+    }
+
+    if (request.role !== "admin" && request.role !== "member") {
+      throw new BadRequestException("Role must be admin or member");
+    }
+
+    const currentUserMembership = chat.members.find(
+      (m) => m.userId === currentUserId,
+    );
+    if (!currentUserMembership || currentUserMembership.role !== "admin") {
+      throw new ForbiddenException("Only admins can edit member roles");
+    }
+
+    const targetMembership = chat.members.find((m) => m.userId === memberUserId);
+    if (!targetMembership) {
+      throw new NotFoundException("Member not found in this group");
+    }
+
+    if (targetMembership.role === request.role) {
+      return this.toChatDto(chat);
+    }
+
+    const adminCount = chat.members.filter((member) => member.role === "admin")
+      .length;
+    if (targetMembership.role === "admin" && request.role === "member" && adminCount <= 1) {
+      throw new BadRequestException("Group must have at least one admin");
+    }
+
+    await this.prisma.chatMember.update({
+      where: { chatId_userId: { chatId, userId: memberUserId } },
+      data: { role: request.role },
+    });
+
+    const updated = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      include: { members: { include: { user: true } } },
+    });
+
+    this.logger.log(
+      `Updated role in chat ${chatId}: user=${memberUserId} role=${request.role}`,
+    );
+    return this.toChatDto(updated!);
+  }
+
+  /**
    * Remove member from chat
    */
   async removeMember(
@@ -307,6 +429,10 @@ export class ChatService {
       throw new NotFoundException(`Chat ${chatId} not found`);
     }
 
+    if (chat.type !== "group") {
+      throw new BadRequestException("Cannot remove members from a direct chat");
+    }
+
     const currentUserMembership = chat.members.find(
       (m) => m.userId === currentUserId,
     );
@@ -320,6 +446,19 @@ export class ChatService {
       currentUserMembership.role !== "admin"
     ) {
       throw new ForbiddenException("Only admins can remove other members");
+    }
+
+    const targetMembership = chat.members.find(
+      (m) => m.userId === memberUserIdToRemove,
+    );
+    if (!targetMembership) {
+      throw new NotFoundException("Member not found in this group");
+    }
+
+    const adminCount = chat.members.filter((member) => member.role === "admin")
+      .length;
+    if (targetMembership.role === "admin" && adminCount <= 1) {
+      throw new BadRequestException("Group must have at least one admin");
     }
 
     await this.prisma.chatMember.deleteMany({
