@@ -48,6 +48,13 @@ export type MessageReceiptDto = {
   seenAt?: ISODateString;
 };
 
+export type MessageReceiptUpdatedDto = MessageReceiptDto & {
+  messageId: Id;
+  chatId: Id;
+  status: MessageReceiptStatus;
+  updatedAt: ISODateString;
+};
+
 export type MessageReactionSummaryDto = {
   emoji: MessageReactionEmoji;
   count: number;

@@ -8,6 +8,7 @@ import {
   toggleMessageReaction,
   upsertMessageReceipt,
   MessageDto,
+  type MessageReceiptUpdatedDto,
   type MessageReactionEmoji,
   type MessageReactionSummaryDto,
 } from "../api/messages.api";
@@ -178,18 +179,49 @@ export function useMessages(chatId: string | null, currentUserId: string) {
   }, []);
 
   const updateReceiptStatus = useCallback(
-    (messageId: string, status: "delivered" | "seen") => {
+    (receiptUpdate: MessageReceiptUpdatedDto) => {
       setMessages((prev) =>
         prev.map((message) => {
-          if (message.id !== messageId) {
+          if (message.id !== receiptUpdate.messageId) {
             return message;
           }
 
-          if (message.receiptStatus === "seen") {
-            return message;
+          const receipts = [...(message.receipts ?? [])];
+          const receiptIndex = receipts.findIndex(
+            (receipt) => receipt.recipientId === receiptUpdate.recipientId,
+          );
+          const currentReceipt =
+            receiptIndex >= 0 ? receipts[receiptIndex] : undefined;
+          const nextReceipt = {
+            recipientId: receiptUpdate.recipientId,
+            ...(currentReceipt?.deliveredAt
+              ? { deliveredAt: currentReceipt.deliveredAt }
+              : {}),
+            ...(currentReceipt?.seenAt ? { seenAt: currentReceipt.seenAt } : {}),
+            ...(receiptUpdate.deliveredAt
+              ? { deliveredAt: receiptUpdate.deliveredAt }
+              : {}),
+            ...(receiptUpdate.seenAt ? { seenAt: receiptUpdate.seenAt } : {}),
+          };
+
+          if (receiptIndex >= 0) {
+            receipts[receiptIndex] = nextReceipt;
+          } else {
+            receipts.push(nextReceipt);
           }
 
-          return { ...message, receiptStatus: status };
+          const nextStatus =
+            receipts.length > 0 &&
+            receipts.every((receipt) => Boolean(receipt.seenAt))
+              ? "seen"
+              : receipts.length > 0 &&
+                  receipts.every((receipt) =>
+                    Boolean(receipt.deliveredAt || receipt.seenAt),
+                  )
+                ? "delivered"
+                : message.receiptStatus ?? "sent";
+
+          return { ...message, receipts, receiptStatus: nextStatus };
         }),
       );
     },

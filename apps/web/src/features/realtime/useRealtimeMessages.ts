@@ -5,6 +5,7 @@ import type {
   MessageEditedDto,
   MessageDto,
   MessageReactionUpdatedDto,
+  MessageReceiptUpdatedDto,
 } from "../chat/api/messages.api";
 import { upsertMessageReceipt } from "../chat/api/messages.api";
 
@@ -14,18 +15,12 @@ interface Options {
   onMessage: (msg: MessageDto) => void;
   onMessageEdited?: (msg: MessageDto) => void;
   onMessageDeleted?: (msg: MessageDto) => void;
-  onReceiptUpdate: (messageId: string, status: "delivered" | "seen") => void;
+  onReceiptUpdate: (payload: MessageReceiptUpdatedDto) => void;
   onReactionUpdate: (
     messageId: string,
     reactions: MessageReactionUpdatedDto["reactions"],
   ) => void;
 }
-
-type ReceiptUpdatePayload = {
-  messageId: string;
-  recipientId: string;
-  status: "delivered" | "seen";
-};
 
 export function useRealtimeMessages({
   chatId,
@@ -64,7 +59,8 @@ export function useRealtimeMessages({
         joinActiveChat();
         socket.on("connect", joinActiveChat);
 
-        const handler = (msg: MessageDto) => {
+        const handler = (payload: MessageDto | { message: MessageDto }) => {
+          const msg = "message" in payload ? payload.message : payload;
           if (msg.chatId !== chatId) return;
 
           onMessageRef.current(msg);
@@ -73,9 +69,11 @@ export function useRealtimeMessages({
           }
         };
 
-        const receiptHandler = (payload: ReceiptUpdatePayload) => {
+        const receiptHandler = (payload: MessageReceiptUpdatedDto) => {
+          if (payload.chatId !== chatId) return;
+
           if (payload.recipientId !== currentUserId) {
-            onReceiptUpdateRef.current(payload.messageId, payload.status);
+            onReceiptUpdateRef.current(payload);
           }
         };
 

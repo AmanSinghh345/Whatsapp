@@ -344,13 +344,16 @@ export class CallService {
   }
 
   private getReceiptStatus(receipts: any[]): "sent" | "delivered" | "seen" {
-    if (receipts.some((receipt) => Boolean(receipt.seenAt))) {
+    if (
+      receipts.length > 0 &&
+      receipts.every((receipt) => Boolean(receipt.seenAt))
+    ) {
       return "seen";
     }
 
     if (
       receipts.length > 0 &&
-      receipts.every((receipt) => Boolean(receipt.deliveredAt))
+      receipts.every((receipt) => Boolean(receipt.deliveredAt || receipt.seenAt))
     ) {
       return "delivered";
     }

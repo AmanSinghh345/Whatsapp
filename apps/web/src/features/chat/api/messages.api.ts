@@ -34,11 +34,25 @@ export interface MessageDto {
     height?: number;
   }[];
   receiptStatus?: "sent" | "delivered" | "seen";
+  receipts?: MessageReceiptDto[];
   reactions?: MessageReactionSummaryDto[];
   createdAt: string;
   updatedAt: string;
   editedAt?: string;
   deletedAt?: string;
+}
+
+export interface MessageReceiptDto {
+  recipientId: string;
+  deliveredAt?: string;
+  seenAt?: string;
+}
+
+export interface MessageReceiptUpdatedDto extends MessageReceiptDto {
+  messageId: string;
+  chatId: string;
+  status: "delivered" | "seen";
+  updatedAt: string;
 }
 
 export interface MessageReplyPreviewDto {
@@ -209,7 +223,12 @@ export async function upsertMessageReceipt(
   const res = await fetch(`${API_BASE}/messages/receipt/upsert`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ chatId, messageId, status }),
+    body: JSON.stringify({
+      chatId,
+      messageId,
+      status,
+      clientReceivedAt: new Date().toISOString(),
+    }),
   });
 
   if (!res.ok) {

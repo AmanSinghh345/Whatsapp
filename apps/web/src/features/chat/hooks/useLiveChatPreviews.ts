@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { ChatDto } from "@chat/shared";
 import type { MessageDto } from "../api/messages.api";
+import { upsertMessageReceipt } from "../api/messages.api";
 import { getSocket } from "../../realtime/socket.client";
 
 type UseLiveChatPreviewsOptions<TChat extends ChatDto> = {
@@ -64,7 +65,17 @@ export function useLiveChatPreviews<TChat extends ChatDto>({
     void getSocket().then((socket) => {
       if (!active) return;
 
-      const onMessage = (message: MessageDto) => {
+      const onMessage = (payload: MessageDto | { message: MessageDto }) => {
+        const message = "message" in payload ? payload.message : payload;
+
+        if (message.senderId !== currentUserId) {
+          void upsertMessageReceipt(
+            message.chatId,
+            message.id,
+            message.chatId === selectedChatId ? "seen" : "delivered",
+          );
+        }
+
         setChats((current) => {
           let changed = false;
           const next = current.map((chat) => {

@@ -15,6 +15,7 @@ import type {
   SendMessageRequestDto,
   MessageDto,
   UpsertReceiptDto,
+  MessageReceiptUpdatedDto,
   MessageReactionEmoji,
   MessageReactionSummaryDto,
   MessageReactionUpdatedDto,
@@ -282,7 +283,10 @@ export class MessageService {
     }));
   }
 
-  async upsertReceipt(userId: string, request: UpsertReceiptDto): Promise<void> {
+  async upsertReceipt(
+    userId: string,
+    request: UpsertReceiptDto,
+  ): Promise<MessageReceiptUpdatedDto | null> {
     const { messageId, chatId, status } = request;
 
     this.assertUuid(messageId, "messageId");
@@ -290,6 +294,7 @@ export class MessageService {
 
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
+      select: { id: true, chatId: true, senderId: true },
     });
 
     if (!message || message.chatId !== chatId) {
@@ -300,33 +305,69 @@ export class MessageService {
 
     await this.chatService.getChat(chatId, userId);
 
-    const updateData: any = {};
-    if (status === "delivered") {
-      updateData.deliveredAt = new Date();
-    } else if (status === "seen") {
-      updateData.seenAt = new Date();
-      updateData.deliveredAt = new Date();
+    if (message.senderId === userId) {
+      return null;
     }
 
-    await this.prisma.messageReceipt.updateMany({
-      where: { messageId, recipientId: userId },
-      data: updateData,
+    const existingReceipt = await this.prisma.messageReceipt.findUnique({
+      where: { messageId_recipientId: { messageId, recipientId: userId } },
     });
+    const now = new Date();
+    const updateData =
+      status === "seen"
+        ? {
+            ...(existingReceipt?.deliveredAt ? {} : { deliveredAt: now }),
+            ...(existingReceipt?.seenAt ? {} : { seenAt: now }),
+          }
+          : existingReceipt?.deliveredAt || existingReceipt?.seenAt
+            ? {}
+            : { deliveredAt: now };
+    const shouldBroadcast =
+      !existingReceipt || Object.keys(updateData).length > 0;
+    const receipt = existingReceipt
+      ? Object.keys(updateData).length > 0
+        ? await this.prisma.messageReceipt.update({
+            where: {
+              messageId_recipientId: { messageId, recipientId: userId },
+            },
+            data: updateData,
+          })
+        : existingReceipt
+      : await this.prisma.messageReceipt.create({
+          data: {
+            messageId,
+            recipientId: userId,
+            ...(status === "seen"
+              ? { deliveredAt: now, seenAt: now }
+              : { deliveredAt: now }),
+          },
+        });
+
+    const payload: MessageReceiptUpdatedDto = {
+      chatId,
+      messageId,
+      recipientId: userId,
+      status: receipt.seenAt ? "seen" : "delivered",
+      updatedAt: receipt.updatedAt.toISOString(),
+      ...(receipt.deliveredAt
+        ? { deliveredAt: receipt.deliveredAt.toISOString() }
+        : {}),
+      ...(receipt.seenAt ? { seenAt: receipt.seenAt.toISOString() } : {}),
+    };
 
     this.logger.debug(
-      `Message receipt updated: ${messageId} for user ${userId} status=${status}`,
+      `Message receipt updated: ${messageId} for user ${userId} status=${payload.status}`,
     );
 
-    this.socketGateway.broadcastMessageToChat(
-      chatId,
-      SocketEvents.messageReceiptUpdated,
-      {
-        messageId,
-        recipientId: userId,
-        status,
-        updatedAt: new Date().toISOString(),
-      },
-    );
+    if (shouldBroadcast) {
+      this.socketGateway.broadcastMessageToChat(
+        chatId,
+        SocketEvents.messageReceiptUpdated,
+        payload,
+      );
+    }
+
+    return payload;
   }
 
   async toggleReaction(
@@ -658,11 +699,17 @@ export class MessageService {
   }
 
   private getReceiptStatus(receipts: any[]): "sent" | "delivered" | "seen" {
-    if (receipts.some((receipt) => Boolean(receipt.seenAt))) {
+    if (
+      receipts.length > 0 &&
+      receipts.every((receipt) => Boolean(receipt.seenAt))
+    ) {
       return "seen";
     }
 
-    if (receipts.length > 0 && receipts.every((receipt) => Boolean(receipt.deliveredAt))) {
+    if (
+      receipts.length > 0 &&
+      receipts.every((receipt) => Boolean(receipt.deliveredAt || receipt.seenAt))
+    ) {
       return "delivered";
     }
 
