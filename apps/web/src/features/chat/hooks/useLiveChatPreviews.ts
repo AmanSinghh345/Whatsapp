@@ -26,6 +26,10 @@ function getMessagePreview(message: MessageDto) {
     return message.text ?? "Attachment";
   }
 
+  if (message.contentType === "game") {
+    return message.text ?? "Game";
+  }
+
   return message.text ?? "Message";
 }
 

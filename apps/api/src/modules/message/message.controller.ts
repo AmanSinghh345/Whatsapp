@@ -26,6 +26,7 @@ import type {
   MessageReactionEmoji,
   MessageReactionUpdatedDto,
   EditMessageRequestDto,
+  PlayGameActionRequestDto,
 } from "@chat/shared";
 
 @Controller("messages")
@@ -167,6 +168,25 @@ export class MessageController {
       emoji,
     );
     return { data: result };
+  }
+
+  /**
+   * Play an action on an interactive game message
+   * POST /api/messages/:messageId/game-actions
+   * Body: { action: "choose", choice: "rock" | "paper" | "scissors" }
+   */
+  @Post(":messageId/game-actions")
+  async playGameAction(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("messageId", new ParseUUIDPipe()) messageId: string,
+    @Body() request: PlayGameActionRequestDto,
+  ): Promise<{ data: MessageDto }> {
+    const message = await this.messageService.playGameAction(
+      messageId,
+      user.id ?? user.firebaseUid,
+      request,
+    );
+    return { data: message };
   }
 
   /**

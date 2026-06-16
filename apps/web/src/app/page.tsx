@@ -206,17 +206,27 @@ function Avatar({
   size?: "sm" | "md" | "lg";
   imageUrl?: string | undefined;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
   const sizeClass =
     size === "lg" ? "h-14 w-14 text-lg" : size === "sm" ? "h-11 w-11" : "h-12 w-12";
   const avatarUrl = imageUrl ?? user?.avatarUrl;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatarUrl]);
 
   return (
     <div
       className={`flex ${sizeClass} shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-emerald-500 to-slate-700 text-sm font-semibold text-white ring-1 ring-white/10`}
     >
-      {avatarUrl ? (
+      {avatarUrl && !imageFailed ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+        <img
+          src={avatarUrl}
+          alt=""
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
       ) : (
         label.slice(0, 1).toUpperCase() || "U"
       )}
@@ -270,6 +280,41 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
   );
 }
 
+function AppToast({
+  message,
+  onDismiss,
+}: {
+  message: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="pointer-events-none fixed right-3 top-3 z-50 w-[min(360px,calc(100vw-1.5rem))]">
+      <div className="pointer-events-auto flex items-start gap-3 rounded-2xl border border-red-300/20 bg-[#24181c]/95 px-4 py-3 text-sm text-red-100 shadow-2xl shadow-black/40 backdrop-blur">
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-100">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+            <path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+          </svg>
+        </div>
+        <p className="min-w-0 flex-1 leading-5">{message}</p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-red-100/70 transition hover:bg-white/10 hover:text-white"
+          aria-label="Dismiss"
+          title="Dismiss"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ActiveChatPane({
   chat,
   user,
@@ -306,6 +351,7 @@ function ActiveChatPane({
   onRemoveGroupMember,
   onUpdateGroupMemberRole,
   onLeaveGroup,
+  onBackToChats,
 }: {
   chat: ChatDto;
   user: UserDto;
@@ -345,6 +391,7 @@ function ActiveChatPane({
     role: ChatMemberDto["role"],
   ) => void;
   onLeaveGroup: () => void;
+  onBackToChats: () => void;
 }) {
   const otherMembers = getOtherMembers(chat, user.id);
   const otherUser = otherMembers[0]?.user;
@@ -378,6 +425,18 @@ function ActiveChatPane({
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="relative shrink-0 border-b border-white/10 bg-[#15171c]/95 px-4 py-2.5 sm:px-5">
         <div className="flex min-w-0 flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={onBackToChats}
+              aria-label="Back to chats"
+              title="Back to chats"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-slate-300 transition hover:bg-white/[0.08] hover:text-white lg:hidden"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
           <button
             type="button"
             onClick={() => setDetailsOpen(true)}
@@ -409,6 +468,7 @@ function ActiveChatPane({
               </p>
             </div>
           </button>
+          </div>
 
           <div className="relative flex min-w-0 items-center gap-2 rounded-2xl border border-white/10 bg-black/10 p-1 xl:w-[min(42vw,480px)]">
             <form
@@ -1493,7 +1553,7 @@ export default function HomePage() {
     <ProtectedRoute>
       <main className="h-[100dvh] w-full overflow-hidden bg-[#0f1013] p-2 text-zinc-50 md:p-3">
         <div className="mx-auto flex h-full w-full max-w-[1500px] overflow-hidden border border-white/10 bg-[#111216] shadow-2xl shadow-black/40 rounded-2xl lg:flex-row">
-        <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-white/10 bg-[#17191f] lg:w-[clamp(280px,26vw,380px)] lg:border-b-0 lg:border-r">
+        <aside className={`${selectedChatId ? "hidden lg:flex" : "flex"} min-h-0 w-full shrink-0 flex-col border-b border-white/10 bg-[#17191f] lg:w-[clamp(280px,26vw,380px)] lg:border-b-0 lg:border-r`}>
           <div className="shrink-0 space-y-3 border-b border-white/10 bg-[#17191f] p-4">
             <div className="flex items-center justify-between gap-3">
               <Link href="/profile" className="flex min-w-0 items-center gap-3 rounded-2xl p-1 transition hover:bg-white/[0.04]">
@@ -1872,12 +1932,8 @@ export default function HomePage() {
           </div>
         </aside>
 
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#111216]">
-          {error && (
-            <div className="mx-5 mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              {error}
-            </div>
-          )}
+        <section className={`${selectedChatId ? "flex" : "hidden lg:flex"} min-h-0 min-w-0 flex-1 flex-col bg-[#111216]`}>
+          {error ? <AppToast message={error} onDismiss={() => setError(null)} /> : null}
 
           {selectedChat && user ? (
             <ActiveChatPane
@@ -1916,6 +1972,7 @@ export default function HomePage() {
               onRemoveGroupMember={handleRemoveMemberFromSelectedGroup}
               onUpdateGroupMemberRole={handleUpdateMemberRole}
               onLeaveGroup={handleLeaveSelectedGroup}
+              onBackToChats={() => setSelectedChatId(null)}
             />
           ) : (
             <>

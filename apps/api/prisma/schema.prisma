@@ -21,6 +21,7 @@ enum MessageContentType {
   text
   attachment
   system
+  game
 }
 
 enum CallSessionStatus {
@@ -106,6 +107,7 @@ model Message {
   clientMessageId String
   contentType     MessageContentType
   textContent     String?
+  gameData        Json?
   deletedAt       DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt

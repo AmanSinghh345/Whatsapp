@@ -1,7 +1,12 @@
 "use client";
 
 import type { ChatDto } from "@chat/shared";
-import type { MessageDto, MessageReactionEmoji } from "../api/messages.api";
+import type {
+  MessageDto,
+  MessageReactionEmoji,
+  RpsChoice,
+  TicTacToeCell,
+} from "../api/messages.api";
 import { MessageBubble } from "./MessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { getUserLabel } from "./chat-display";
@@ -17,6 +22,18 @@ interface MessageListProps {
   onEdit?: (messageId: string, text: string) => void;
   onDelete?: (messageId: string) => void;
   onReply?: (message: MessageDto) => void;
+  onCopy?: (text: string) => void;
+  onPreviewImage?: (image: {
+    url: string;
+    name: string;
+    size: string;
+  }) => void;
+  onGameAction?: (
+    messageId: string,
+    action:
+      | { action: "choose"; choice: RpsChoice }
+      | { action: "place"; cell: TicTacToeCell },
+  ) => void;
   pendingReactionMessageIds?: Set<string>;
   editingMessageId?: string | null;
   deletingMessageId?: string | null;
@@ -25,8 +42,8 @@ interface MessageListProps {
   messageRefs?: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
 }
 
-function isSameMessageGroup(current: MessageDto, previous?: MessageDto) {
-  if (!previous) return false;
+function isSameMessageGroup(current: MessageDto | undefined, previous?: MessageDto) {
+  if (!current || !previous) return false;
   if (current.contentType === "system" || previous.contentType === "system") {
     return false;
   }
@@ -39,11 +56,51 @@ function isSameMessageGroup(current: MessageDto, previous?: MessageDto) {
   return currentTime - previousTime < 5 * 60 * 1000;
 }
 
+function isSameCalendarDay(current: MessageDto, previous?: MessageDto) {
+  if (!previous) return false;
+
+  const currentDate = new Date(current.createdAt);
+  const previousDate = new Date(previous.createdAt);
+
+  if (
+    Number.isNaN(currentDate.getTime()) ||
+    Number.isNaN(previousDate.getTime())
+  ) {
+    return false;
+  }
+
+  return currentDate.toDateString() === previousDate.toDateString();
+}
+
+function formatDateSeparator(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) {
+    return "Today";
+  }
+
+  if (date.toDateString() === yesterday.toDateString()) {
+    return "Yesterday";
+  }
+
+  return date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
+  });
+}
+
 function getSenderLabel(chat: ChatDto | null | undefined, senderId: string) {
-  return getUserLabel(
-    chat?.members?.find((member) => member.userId === senderId)?.user,
-    "Member",
-  );
+  const member = chat?.members?.find((item) => item.userId === senderId);
+  return getUserLabel(member?.user, member ? "Member" : "GameBot");
 }
 
 function getSenderUser(chat: ChatDto | null | undefined, senderId: string) {
@@ -61,6 +118,9 @@ export function MessageList({
   onEdit,
   onDelete,
   onReply,
+  onCopy,
+  onPreviewImage,
+  onGameAction,
   pendingReactionMessageIds,
   editingMessageId = null,
   deletingMessageId = null,
@@ -93,11 +153,20 @@ export function MessageList({
         <div className="mt-auto">
           {messages.map((message, index) => {
             const previous = messages[index - 1];
+            const next = messages[index + 1];
+            const showDateSeparator = !isSameCalendarDay(message, previous);
             const groupedWithPrevious = isSameMessageGroup(message, previous);
+            const groupedWithNext = isSameMessageGroup(next, message);
             const senderUser = getSenderUser(chat, message.senderId);
             const replyToLabel = message.replyTo
               ? getSenderLabel(chat, message.replyTo.senderId)
               : undefined;
+            const playerLabels = Object.fromEntries(
+              (chat?.members ?? []).map((member) => [
+                member.userId,
+                member.user?.displayName ?? "Player",
+              ]),
+            );
 
             return (
               <div
@@ -108,12 +177,21 @@ export function MessageList({
                   }
                 }}
               >
+                {showDateSeparator ? (
+                  <div className="my-5 flex justify-center">
+                    <span className="rounded-full border border-white/10 bg-[#20232b]/90 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 shadow-lg shadow-black/20 backdrop-blur">
+                      {formatDateSeparator(message.createdAt)}
+                    </span>
+                  </div>
+                ) : null}
                 <MessageBubble
                   message={message}
                   isOwn={message.senderId === currentUserId}
                   highlighted={message.id === highlightedMessageId}
                   groupedWithPrevious={groupedWithPrevious}
+                  groupedWithNext={groupedWithNext}
                   senderLabel={getSenderLabel(chat, message.senderId)}
+                  playerLabels={playerLabels}
                   currentUserId={currentUserId}
                   reactionPending={pendingReactionMessageIds?.has(message.id) ?? false}
                   editing={editingMessageId === message.id}
@@ -122,6 +200,9 @@ export function MessageList({
                   {...(onEdit ? { onEdit } : {})}
                   {...(onDelete ? { onDelete } : {})}
                   {...(onReply ? { onReply } : {})}
+                  {...(onCopy ? { onCopy } : {})}
+                  {...(onPreviewImage ? { onPreviewImage } : {})}
+                  {...(onGameAction ? { onGameAction } : {})}
                   {...(replyToLabel ? { replyToLabel } : {})}
                   {...(senderUser ? { senderUser } : {})}
                 />

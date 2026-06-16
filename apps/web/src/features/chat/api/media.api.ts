@@ -114,3 +114,15 @@ export async function uploadGroupAvatar(file: File): Promise<CloudinaryAssetDto>
 
   return uploadMedia(file, "group-avatars");
 }
+
+export async function uploadUserAvatar(file: File): Promise<CloudinaryAssetDto> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Profile photo must be an image.");
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error("Profile photo must be 2 MB or smaller.");
+  }
+
+  return uploadMedia(file, "user-avatars");
+}

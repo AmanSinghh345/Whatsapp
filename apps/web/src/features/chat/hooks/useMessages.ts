@@ -5,11 +5,14 @@ import {
   editMessage,
   sendAttachmentMessage,
   sendMessage,
+  playGameAction,
   toggleMessageReaction,
   upsertMessageReceipt,
   MessageDto,
   type MessageReceiptUpdatedDto,
   type MessageReactionEmoji,
+  type RpsChoice,
+  type TicTacToeCell,
   type MessageReactionSummaryDto,
 } from "../api/messages.api";
 import { uploadChatMedia } from "../api/media.api";
@@ -71,7 +74,22 @@ export function useMessages(chatId: string | null, currentUserId: string) {
         });
       }
 
-      return ["👍", "❤️", "😂", "😮", "😢"].flatMap((allowedEmoji) => {
+      return [
+        "👍",
+        "❤️",
+        "😂",
+        "😮",
+        "😢",
+        "🙏",
+        "🔥",
+        "👏",
+        "🎉",
+        "💯",
+        "😎",
+        "😭",
+        "🤔",
+        "👀",
+      ].flatMap((allowedEmoji) => {
         const reaction = nextByEmoji.get(allowedEmoji as MessageReactionEmoji);
         return reaction ? [reaction] : [];
       });
@@ -301,6 +319,24 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     ],
   );
 
+  const playGame = useCallback(
+    async (
+      messageId: string,
+      action:
+        | { action: "choose"; choice: RpsChoice }
+        | { action: "place"; cell: TicTacToeCell },
+    ) => {
+      setError(null);
+      try {
+        const updated = await playGameAction(messageId, action);
+        updateMessage(updated);
+      } catch (e: any) {
+        setError(e.message);
+      }
+    },
+    [updateMessage],
+  );
+
   const sendAttachment = useCallback(
     async (file: File) => {
       if (!chatId) return;
@@ -385,6 +421,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     updateReceiptStatus,
     updateMessageReactions,
     reactToMessage,
+    playGame,
     edit,
     deleteMessage: remove,
     setReplyToMessage,

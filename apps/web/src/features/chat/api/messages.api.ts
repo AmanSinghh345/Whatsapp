@@ -14,6 +14,53 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 }
 
 // Matches your backend MessageDto exactly
+export type RpsChoice = "rock" | "paper" | "scissors";
+export type TicTacToeCell = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+export interface RpsGameData {
+  kind: "rps";
+  status: "waiting" | "finished";
+  createdByUserId: string;
+  choices: Record<
+    string,
+    {
+      choice: RpsChoice;
+      chosenAt: string;
+    }
+  >;
+  result?: {
+    status: "waiting" | "tie" | "winner";
+    winnerUserId?: string;
+    reason?: string;
+  };
+}
+
+export interface TicTacToeGameData {
+  kind: "tic-tac-toe";
+  status: "waiting" | "playing" | "finished";
+  createdByUserId: string;
+  players: {
+    x?: string;
+    o?: string;
+  };
+  board: Array<"x" | "o" | null>;
+  nextTurn: "x" | "o";
+  moves: Array<{
+    userId: string;
+    mark: "x" | "o";
+    cell: TicTacToeCell;
+    playedAt: string;
+  }>;
+  result?: {
+    status: "waiting" | "tie" | "winner";
+    winnerUserId?: string;
+    winningCells?: TicTacToeCell[];
+    reason?: string;
+  };
+}
+
+export type GameMessageData = RpsGameData | TicTacToeGameData;
+
 export interface MessageDto {
   id: string;
   chatId: string;
@@ -21,8 +68,9 @@ export interface MessageDto {
   replyToMessageId?: string;
   replyTo?: MessageReplyPreviewDto;
   clientMessageId: string;
-  contentType: "text" | "attachment" | "system";
+  contentType: "text" | "attachment" | "system" | "game";
   text?: string | null;
+  gameData?: GameMessageData;
   attachments?: {
     id: string;
     url: string;
@@ -58,12 +106,26 @@ export interface MessageReceiptUpdatedDto extends MessageReceiptDto {
 export interface MessageReplyPreviewDto {
   id: string;
   senderId: string;
-  contentType: "text" | "attachment" | "system";
+  contentType: "text" | "attachment" | "system" | "game";
   text?: string | null;
   deletedAt?: string;
 }
 
-export type MessageReactionEmoji = "👍" | "❤️" | "😂" | "😮" | "😢";
+export type MessageReactionEmoji =
+  | "👍"
+  | "❤️"
+  | "😂"
+  | "😮"
+  | "😢"
+  | "🙏"
+  | "🔥"
+  | "👏"
+  | "🎉"
+  | "💯"
+  | "😎"
+  | "😭"
+  | "🤔"
+  | "👀";
 
 export interface MessageReactionSummaryDto {
   emoji: MessageReactionEmoji;
@@ -249,6 +311,27 @@ export async function toggleMessageReaction(
 
   if (!res.ok) {
     throw new Error(`Failed to update reaction: ${res.status}`);
+  }
+
+  const body = await res.json();
+  return body.data;
+}
+
+export async function playGameAction(
+  messageId: string,
+  action:
+    | { action: "choose"; choice: RpsChoice }
+    | { action: "place"; cell: TicTacToeCell },
+): Promise<MessageDto> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/messages/${messageId}/game-actions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(action),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to play game action: ${res.status}`);
   }
 
   const body = await res.json();

@@ -52,35 +52,27 @@ export default function LoginPage() {
       <div className="relative mx-auto grid min-h-[100dvh] w-full max-w-[1480px] grid-cols-1 gap-4 p-3 lg:grid-cols-[minmax(390px,0.78fr)_minmax(0,1.22fr)] lg:p-4">
         <section className="flex min-h-0 items-center justify-center rounded-3xl border border-white/10 bg-[#11161e]/95 px-5 py-8 shadow-2xl shadow-black/30 sm:px-8 lg:px-10">
           <div className="w-full max-w-md">
-            <div className="mb-8 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-500/10 text-emerald-200 shadow-lg shadow-emerald-950/20">
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-7 w-7"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                >
-                  <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
-                  <path d="M8 9h8" />
-                  <path d="M8 13h5" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-white">Chat App</p>
-                <p className="text-xs font-medium text-slate-500">
-                  Real-time workspace
-                </p>
-              </div>
+            <div className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-500/10 text-emerald-200 shadow-lg shadow-emerald-950/20">
+              <svg
+                viewBox="0 0 24 24"
+                className="h-7 w-7"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+              >
+                <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                <path d="M8 9h8" />
+                <path d="M8 13h5" />
+              </svg>
             </div>
 
             <p className="mb-3 inline-flex rounded-full border border-emerald-300/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">
               Welcome back
             </p>
 
-            <h1 className="text-4xl font-black leading-tight text-white sm:text-5xl">
+            <h1 className="text-3xl font-black leading-tight text-white sm:text-4xl">
               Sign in to
               <span className="mt-1 block h-[1.1em] overflow-hidden text-emerald-300">
                 <span className="login-word-track block">
@@ -95,6 +87,14 @@ export default function LoginPage() {
               Pick up every conversation, invite your groups, and keep calls and
               messages in one polished workspace.
             </p>
+
+            <div className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-[#0e141d] shadow-2xl shadow-black/25 lg:hidden">
+              <img
+                src="/images/login-hero.png"
+                alt=""
+                className="h-48 w-full object-cover"
+              />
+            </div>
 
             <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-black/25">
               <button
@@ -176,7 +176,7 @@ export default function LoginPage() {
           <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[#070b10]/80 to-transparent" />
 
           <div className="login-float absolute left-8 top-8 rounded-2xl border border-white/10 bg-[#101722]/80 px-4 py-3 shadow-2xl shadow-black/30 backdrop-blur">
-            <p className="text-xs font-bold text-emerald-200">Aman Singh</p>
+            <p className="text-xs font-bold text-emerald-200">New message</p>
             <p className="mt-1 text-xs text-slate-400">Typing...</p>
           </div>
 

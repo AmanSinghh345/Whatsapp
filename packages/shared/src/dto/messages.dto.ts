@@ -1,8 +1,67 @@
 import type { Id, ISODateString } from "../types/index.js";
 
-export type MessageContentType = "text" | "attachment" | "system";
+export type MessageContentType = "text" | "attachment" | "system" | "game";
 
-export type MessageReactionEmoji = "👍" | "❤️" | "😂" | "😮" | "😢";
+export type RpsChoice = "rock" | "paper" | "scissors";
+export type TicTacToeCell = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+export type GameMessageData =
+  | {
+      kind: "rps";
+      status: "waiting" | "finished";
+      createdByUserId: Id;
+      choices: Record<
+        Id,
+        {
+          choice: RpsChoice;
+          chosenAt: ISODateString;
+        }
+      >;
+      result?: {
+        status: "waiting" | "tie" | "winner";
+        winnerUserId?: Id;
+        reason?: string;
+      };
+    }
+  | {
+      kind: "tic-tac-toe";
+      status: "waiting" | "playing" | "finished";
+      createdByUserId: Id;
+      players: {
+        x?: Id;
+        o?: Id;
+      };
+      board: Array<"x" | "o" | null>;
+      nextTurn: "x" | "o";
+      moves: Array<{
+        userId: Id;
+        mark: "x" | "o";
+        cell: TicTacToeCell;
+        playedAt: ISODateString;
+      }>;
+      result?: {
+        status: "waiting" | "tie" | "winner";
+        winnerUserId?: Id;
+        winningCells?: TicTacToeCell[];
+        reason?: string;
+      };
+    };
+
+export type MessageReactionEmoji =
+  | "👍"
+  | "❤️"
+  | "😂"
+  | "😮"
+  | "😢"
+  | "🙏"
+  | "🔥"
+  | "👏"
+  | "🎉"
+  | "💯"
+  | "😎"
+  | "😭"
+  | "🤔"
+  | "👀";
 
 export type MessageAttachmentDto = {
   id: Id;
@@ -24,6 +83,7 @@ export type MessageDto = {
   clientMessageId: string;
   contentType: MessageContentType;
   text?: string;
+  gameData?: GameMessageData;
   attachments?: MessageAttachmentDto[];
   receiptStatus?: "sent" | "delivered" | "seen";
   receipts?: MessageReceiptDto[];
@@ -64,7 +124,7 @@ export type MessageReactionSummaryDto = {
 export type SendMessageRequestDto = {
   chatId: Id;
   clientMessageId: string;
-  contentType: Exclude<MessageContentType, "system">;
+  contentType: Exclude<MessageContentType, "system" | "game">;
   text?: string;
   attachmentIds?: Id[];
   replyToMessageId?: Id;
@@ -103,6 +163,14 @@ export type MessageReactionUpdatedDto = {
 
 export type EditMessageRequestDto = {
   text: string;
+};
+
+export type PlayGameActionRequestDto = {
+  action: "choose";
+  choice: RpsChoice;
+} | {
+  action: "place";
+  cell: TicTacToeCell;
 };
 
 export type MessageEditedDto = {

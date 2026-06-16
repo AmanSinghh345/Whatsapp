@@ -935,6 +935,10 @@ export class ChatService {
       return message.textContent ?? "Attachment";
     }
 
+    if (message.contentType === "game") {
+      return message.textContent ?? "Game";
+    }
+
     return message.textContent ?? "Message";
   }
 

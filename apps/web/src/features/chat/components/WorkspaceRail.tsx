@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import type { UserDto } from "@chat/shared";
 import { getInitials, getUserLabel } from "./chat-display";
 import { OnlineStatusDot } from "./OnlineStatusDot";
@@ -9,7 +10,13 @@ interface WorkspaceRailProps {
 }
 
 export function WorkspaceRail({ user, active = "chats" }: WorkspaceRailProps) {
+  const [imageFailed, setImageFailed] = useState(false);
   const label = getUserLabel(user ?? undefined, "Me");
+  const avatarUrl = user?.avatarUrl;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatarUrl]);
 
   return (
     <aside className="hidden w-[76px] shrink-0 flex-col items-center gap-4 border-r border-white/10 bg-[#0b0f17] px-3 py-4 md:flex">
@@ -53,9 +60,14 @@ export function WorkspaceRail({ user, active = "chats" }: WorkspaceRailProps) {
             active === "profile" ? "bg-white/[0.12]" : "bg-white/[0.06]",
           ].join(" ")}
         >
-          {user?.avatarUrl ? (
+          {avatarUrl && !imageFailed ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+            <img
+              src={avatarUrl}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={() => setImageFailed(true)}
+            />
           ) : (
             <span className="text-sm font-bold text-slate-100">
               {getInitials(label) || "U"}

@@ -1,0 +1,3 @@
+ALTER TYPE "MessageContentType" ADD VALUE IF NOT EXISTS 'game';
+
+ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "gameData" JSONB;
