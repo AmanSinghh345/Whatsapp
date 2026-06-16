@@ -124,6 +124,31 @@ function formatLastSeenTime(lastSeenAt: string) {
   return lastSeen.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function formatChatListTime(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  if (date.toDateString() === yesterday.toDateString()) {
+    return "Yesterday";
+  }
+
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 function formatPresenceStatus(presence?: PresenceView, fallbackLastSeenAt?: string) {
   if (presence?.state === "online") {
     return "Online";
@@ -351,12 +376,12 @@ function ActiveChatPane({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="relative shrink-0 border-b border-white/10 bg-[#15171c] px-4 py-3 sm:px-5">
-        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <header className="relative shrink-0 border-b border-white/10 bg-[#15171c]/95 px-4 py-2.5 sm:px-5">
+        <div className="flex min-w-0 flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
           <button
             type="button"
             onClick={() => setDetailsOpen(true)}
-            className="flex min-w-0 items-center gap-4 rounded-2xl text-left transition hover:bg-white/[0.04] focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+            className="group flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1 text-left transition hover:bg-white/[0.045] focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
           >
             <div className="relative">
               <Avatar
@@ -370,8 +395,13 @@ function ActiveChatPane({
               </span>
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-xl font-bold text-white">{title}</h1>
-              <p className="mt-1 flex items-center gap-2 truncate text-sm text-slate-400">
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="truncate text-lg font-bold text-white">{title}</h1>
+                <span className="hidden rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 transition group-hover:text-slate-300 sm:inline-flex">
+                  Info
+                </span>
+              </div>
+              <p className="mt-0.5 flex items-center gap-2 truncate text-xs text-slate-400">
                 {hasOnlineMember ? (
                   <span className="h-2 w-2 rounded-full bg-emerald-400" />
                 ) : null}
@@ -380,10 +410,10 @@ function ActiveChatPane({
             </div>
           </button>
 
-          <div className="relative flex min-w-0 items-center gap-2 xl:w-[min(42vw,480px)]">
+          <div className="relative flex min-w-0 items-center gap-2 rounded-2xl border border-white/10 bg-black/10 p-1 xl:w-[min(42vw,480px)]">
             <form
               onSubmit={onMessageSearch}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-[#20232b] px-3 py-2 text-slate-400 transition focus-within:border-emerald-400/60 focus-within:bg-[#242832]"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-transparent bg-[#20232b] px-3 py-2 text-slate-400 transition focus-within:border-emerald-400/50 focus-within:bg-[#242832]"
             >
               <svg
                 viewBox="0 0 24 24"
@@ -427,14 +457,14 @@ function ActiveChatPane({
               }
               onClick={call.startCall}
               disabled={!callAvailable || call.phase !== "idle"}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/15 text-emerald-300 transition hover:bg-emerald-500/25 hover:text-emerald-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.04] disabled:text-slate-500"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-400/25 bg-emerald-500/12 text-emerald-300 transition hover:bg-emerald-500/20 hover:text-emerald-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.04] disabled:text-slate-500"
             >
               <VideoCallIcon />
             </button>
           </div>
 
           {showSearchResults ? (
-            <div className="absolute right-12 top-[52px] z-30 max-h-72 w-[min(420px,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#20232b]/98 p-2 shadow-2xl shadow-black/40 backdrop-blur">
+            <div className="absolute right-14 top-[54px] z-30 max-h-72 w-[min(420px,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#20232b]/98 p-2 shadow-2xl shadow-black/40 backdrop-blur">
               <div className="flex items-center justify-between px-2 pb-2">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                   Search messages
@@ -1464,9 +1494,9 @@ export default function HomePage() {
       <main className="h-[100dvh] w-full overflow-hidden bg-[#0f1013] p-2 text-zinc-50 md:p-3">
         <div className="mx-auto flex h-full w-full max-w-[1500px] overflow-hidden border border-white/10 bg-[#111216] shadow-2xl shadow-black/40 rounded-2xl lg:flex-row">
         <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-white/10 bg-[#17191f] lg:w-[clamp(280px,26vw,380px)] lg:border-b-0 lg:border-r">
-          <div className="shrink-0 space-y-3 border-b border-white/10 p-4">
+          <div className="shrink-0 space-y-3 border-b border-white/10 bg-[#17191f] p-4">
             <div className="flex items-center justify-between gap-3">
-              <Link href="/profile" className="flex min-w-0 items-center gap-3">
+              <Link href="/profile" className="flex min-w-0 items-center gap-3 rounded-2xl p-1 transition hover:bg-white/[0.04]">
                 <div className="relative">
                   <Avatar user={user ?? undefined} label={user?.displayName ?? "User"} size="lg" />
                   <span className="absolute bottom-0 right-0 rounded-full bg-[#17191f] p-1">
@@ -1474,10 +1504,10 @@ export default function HomePage() {
                   </span>
                 </div>
                 <div className="min-w-0">
-                  <h2 className="truncate text-xl font-bold text-white">
+                  <h2 className="truncate text-lg font-bold text-white">
                     {user?.displayName ?? "Your profile"}
                   </h2>
-                  <p className="mt-0.5 truncate text-sm text-slate-400">
+                  <p className="mt-0.5 truncate text-xs text-slate-400">
                     {user?.phoneE164 ?? user?.email ?? "Add your details"}
                   </p>
                 </div>
@@ -1489,7 +1519,7 @@ export default function HomePage() {
                 disabled={isLoading}
                 aria-label="Refresh chats"
                 title="Refresh chats"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.035] text-slate-400 transition hover:border-white/20 hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 12a9 9 0 0 1-15.4 6.4" />
@@ -1501,7 +1531,7 @@ export default function HomePage() {
             </div>
 
             <div className="space-y-3">
-              <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/8 bg-[#20232b] px-4 py-2.5 text-slate-400 shadow-inner shadow-black/20 focus-within:border-emerald-400/50">
+              <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/10 bg-[#20232b] px-3.5 py-2.5 text-slate-400 shadow-inner shadow-black/20 transition focus-within:border-emerald-400/50 focus-within:bg-[#242832]">
                 <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="11" cy="11" r="7" />
                   <path d="m20 20-3.5-3.5" />
@@ -1510,12 +1540,12 @@ export default function HomePage() {
                   value={chatSearchQuery}
                   onChange={(event) => setChatSearchQuery(event.target.value)}
                   placeholder="Search conversations..."
-                  className="min-w-0 flex-1 bg-transparent text-base text-slate-100 outline-none placeholder:text-slate-400"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
                 />
                 <button
                   type="button"
                   onClick={() => setCreatePanelOpen((current) => !current)}
-                  className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-[#07110d] transition hover:bg-emerald-400"
+                  className="shrink-0 rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-bold text-[#07110d] transition hover:bg-emerald-400"
                 >
                   New
                 </button>
@@ -1657,7 +1687,7 @@ export default function HomePage() {
               ) : null}
             </div>
 
-            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-400">
+            <div className="flex min-w-0 items-center gap-1.5 rounded-2xl bg-black/15 p-1 text-xs font-bold text-slate-400">
               {([
                 ["all", "All"],
                 ["group", "Groups"],
@@ -1667,9 +1697,9 @@ export default function HomePage() {
                   key={filter}
                   type="button"
                   onClick={() => setChatTypeFilter(filter)}
-                  className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl px-3 py-2.5 transition ${
+                  className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-2.5 py-2 transition ${
                     chatTypeFilter === filter
-                      ? "bg-emerald-500/15 text-emerald-400"
+                      ? "bg-emerald-500/15 text-emerald-300 shadow-sm shadow-black/20"
                       : "hover:bg-white/[0.04] hover:text-slate-100"
                   }`}
                 >
@@ -1690,15 +1720,35 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto bg-[#17191f]">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#15171c] px-2 py-2">
             {isLoading ? (
-              <p className="px-5 py-4 text-sm text-slate-400">Loading chats...</p>
+              <div className="space-y-2">
+                {[0, 1, 2, 3].map((item) => (
+                  <div
+                    key={item}
+                    className="flex items-center gap-3 rounded-2xl px-3 py-3"
+                  >
+                    <div className="h-12 w-12 shrink-0 animate-pulse rounded-full bg-white/[0.06]" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="h-3 w-2/3 animate-pulse rounded bg-white/[0.07]" />
+                      <div className="h-3 w-4/5 animate-pulse rounded bg-white/[0.045]" />
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : filteredChats.length === 0 ? (
-              <p className="px-5 py-4 text-sm text-slate-400">
-                {chatSearchQuery.trim() ? "No conversations found" : "No chats yet"}
-              </p>
+              <div className="mx-2 mt-4 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-5 text-center">
+                <p className="text-sm font-bold text-slate-200">
+                  {chatSearchQuery.trim() ? "No conversations found" : "No chats yet"}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  {chatSearchQuery.trim()
+                    ? "Try a different name, number, or message preview."
+                    : "Start a direct chat or create a group from New."}
+                </p>
+              </div>
             ) : (
-              <div className="space-y-1 pb-3">
+              <div className="space-y-1">
                 {filteredChats.map((chat) => {
                   const isSelected = chat.id === selectedChatId;
                   const otherMembers = getOtherMembers(chat, user?.id);
@@ -1709,6 +1759,7 @@ export default function HomePage() {
                     chat.lastMessagePreview ?? subtitle;
                   const unreadCount = chat.unreadCount ?? 0;
                   const previewTime = chat.lastMessageAt ?? chat.updatedAt;
+                  const previewTimeLabel = formatChatListTime(previewTime);
                   const otherMemberIds = otherMembers.map((member) => member.userId);
                   const hasOnlineMember = otherMemberIds.some((id) =>
                     isOnline(id),
@@ -1727,14 +1778,17 @@ export default function HomePage() {
                       key={chat.id}
                       type="button"
                       onClick={() => setSelectedChatId(chat.id)}
-                      className={`group w-full border-l-4 px-5 py-4 text-left transition ${
+                      className={`group relative w-full rounded-2xl border px-3 py-3 text-left transition ${
                         isSelected
-                          ? "border-emerald-400 bg-emerald-500/10"
-                          : "border-transparent hover:bg-white/[0.04]"
+                          ? "border-emerald-400/30 bg-emerald-500/10 shadow-sm shadow-black/20"
+                          : "border-transparent hover:border-white/10 hover:bg-white/[0.045]"
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
+                      {isSelected ? (
+                        <span className="absolute bottom-3 left-0 top-3 w-1 rounded-r-full bg-emerald-400" />
+                      ) : null}
+                      <div className="flex min-w-0 items-center gap-3 pl-1">
+                        <div className="relative shrink-0">
                           <Avatar
                             user={chat.type === "group" ? undefined : otherUser}
                             label={title}
@@ -1749,38 +1803,55 @@ export default function HomePage() {
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <span className={`block truncate text-base font-bold ${isSelected ? "text-emerald-400" : "text-white"}`}>
-                            {title}
-                          </span>
-                          <span
-                            className={`mt-1 block truncate text-sm ${
-                              isTypingInChat ? "font-semibold text-emerald-400" : "text-slate-400"
-                            }`}
-                          >
-                            {isTypingInChat ? "Typing..." : preview}
-                          </span>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className={`block truncate text-sm font-bold ${isSelected ? "text-emerald-300" : "text-white"}`}>
+                              {title}
+                            </span>
+                            {chat.type === "group" ? (
+                              <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                Group
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 flex min-w-0 items-center gap-1.5">
+                            {isTypingInChat ? (
+                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+                            ) : null}
+                            <span
+                              className={`block truncate text-xs leading-5 ${
+                                isTypingInChat
+                                  ? "font-semibold text-emerald-300"
+                                  : unreadCount > 0
+                                    ? "font-semibold text-slate-200"
+                                    : "text-slate-400"
+                              }`}
+                            >
+                              {isTypingInChat ? "Typing..." : preview}
+                            </span>
+                          </div>
                         </div>
 
-                        <div className="flex shrink-0 flex-col items-end gap-2">
-                          <span className="text-xs text-slate-400">
-                            {new Date(previewTime).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                        <div className="flex shrink-0 flex-col items-end gap-2 self-stretch py-0.5">
+                          <span
+                            className={`text-[11px] ${
+                              unreadCount > 0 ? "font-bold text-emerald-300" : "text-slate-500"
+                            }`}
+                          >
+                            {previewTimeLabel}
                           </span>
                           {unreadCount > 0 ? (
-                            <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-bold text-[#07110d]">
+                            <span className="min-w-5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-center text-[11px] font-black text-[#07110d] shadow-sm shadow-emerald-950/40">
                               {unreadCount > 9 ? "9+" : unreadCount}
                             </span>
                           ) : hasOnlineMember ? (
-                            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-300">
-                              On
+                            <span className="rounded-full border border-emerald-300/15 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                              Online
                             </span>
                           ) : null}
                         </div>
                       </div>
 
-                      <span className="mt-2 block truncate pl-[60px] text-xs text-slate-500">
+                      <span className="mt-1 block truncate pl-[64px] text-[11px] text-slate-500">
                         {presenceStatus}
                       </span>
                     </button>
@@ -1790,12 +1861,12 @@ export default function HomePage() {
             )}
           </div>
 
-          <div className="flex shrink-0 items-center justify-between border-t border-white/10 px-5 py-3 text-sm text-slate-400">
-            <span className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center justify-between border-t border-white/10 bg-[#17191f] px-4 py-3 text-sm text-slate-400">
+            <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold text-slate-300">
               <PresenceDot online size="md" />
               Online
             </span>
-            <Link href="/profile" className="rounded-full px-3 py-1.5 transition hover:bg-white/[0.06] hover:text-white">
+            <Link href="/profile" className="rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-white/[0.06] hover:text-white">
               Profile
             </Link>
           </div>
@@ -1848,17 +1919,22 @@ export default function HomePage() {
             />
           ) : (
             <>
-              <header className="border-b border-white/10 bg-[#15171c] px-5 py-4">
-                <h1 className="truncate text-xl font-bold">
+              <header className="shrink-0 border-b border-white/10 bg-[#15171c]/95 px-5 py-3">
+                <h1 className="truncate text-lg font-bold text-white">
                   Select a conversation
                 </h1>
-                <p className="mt-1 truncate text-sm text-slate-400">
+                <p className="mt-0.5 truncate text-xs text-slate-400">
                   Create or choose a chat
                 </p>
               </header>
-              <div className="flex flex-1 items-center justify-center p-6">
-                <div className="max-w-md text-center">
-                  <h2 className="text-xl font-bold">Ready for chats</h2>
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-[#101114] p-6">
+                <div className="max-w-sm rounded-3xl border border-white/10 bg-white/[0.035] px-6 py-7 text-center shadow-2xl shadow-black/25">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-500/10 text-emerald-200">
+                    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                    </svg>
+                  </div>
+                  <h2 className="mt-4 text-lg font-bold text-white">Ready for chats</h2>
 
                   <p className="mt-2 text-sm leading-6 text-slate-400">
                     Create a direct chat from the sidebar using another signed-in
