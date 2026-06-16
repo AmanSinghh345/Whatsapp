@@ -31,6 +31,15 @@ export type CallPhase =
   | "connecting"
   | "active";
 
+export type WebRtcDebugState = {
+  iceConnectionState: RTCIceConnectionState | "not-started";
+  connectionState: RTCPeerConnectionState | "not-started";
+  signalingState: RTCSignalingState | "not-started";
+  hasLocalStream: boolean;
+  hasRemoteStream: boolean;
+  usingTurn: boolean;
+};
+
 type UseWebRtcCallOptions = {
   chat: ChatDto;
   currentUserId: string;
@@ -81,6 +90,11 @@ const RTC_CONFIGURATION: RTCConfiguration = {
   ...getRtcConfiguration(),
 };
 
+const USING_TURN = Boolean(
+  process.env.NEXT_PUBLIC_METERED_TURN_USERNAME &&
+    process.env.NEXT_PUBLIC_METERED_TURN_CREDENTIAL,
+);
+
 export function useWebRtcCall({
   chat,
   currentUserId,
@@ -93,6 +107,14 @@ export function useWebRtcCall({
   const [error, setError] = useState<string | null>(null);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [debugState, setDebugState] = useState<WebRtcDebugState>({
+    iceConnectionState: "not-started",
+    connectionState: "not-started",
+    signalingState: "not-started",
+    hasLocalStream: false,
+    hasRemoteStream: false,
+    usingTurn: USING_TURN,
+  });
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const activeCallRef = useRef<CallSessionDto | null>(null);
@@ -111,6 +133,20 @@ export function useWebRtcCall({
     peerUserIdRef.current = peerUserId ?? peerUserIdRef.current;
   }, [peerUserId]);
 
+  const updateDebugState = useCallback(() => {
+    const peerConnection = peerConnectionRef.current;
+
+    setDebugState({
+      iceConnectionState:
+        peerConnection?.iceConnectionState ?? "not-started",
+      connectionState: peerConnection?.connectionState ?? "not-started",
+      signalingState: peerConnection?.signalingState ?? "not-started",
+      hasLocalStream: Boolean(localStreamRef.current),
+      hasRemoteStream: Boolean(remoteStreamRef.current),
+      usingTurn: USING_TURN,
+    });
+  }, []);
+
   const cleanupConnection = useCallback((stopMedia: boolean) => {
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
@@ -128,7 +164,8 @@ export function useWebRtcCall({
 
     remoteStreamRef.current = null;
     setRemoteStream(null);
-  }, []);
+    updateDebugState();
+  }, [updateDebugState]);
 
   const sendSignal = useCallback(async (signal: WebRtcSignalDto) => {
     const socket = await getSocket();
@@ -151,6 +188,7 @@ export function useWebRtcCall({
       });
       localStreamRef.current = stream;
       setLocalStream(stream);
+      updateDebugState();
       return stream;
     } catch {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -161,6 +199,7 @@ export function useWebRtcCall({
       setLocalStream(stream);
       setIsCameraOff(true);
       setError("Camera unavailable. Joined with microphone only.");
+      updateDebugState();
       return stream;
     }
   }, []);
@@ -211,6 +250,7 @@ export function useWebRtcCall({
         if (streamFromEvent) {
           remoteStreamRef.current = streamFromEvent;
           setRemoteStream(streamFromEvent);
+          updateDebugState();
           return;
         }
 
@@ -219,9 +259,11 @@ export function useWebRtcCall({
         nextRemoteStream.addTrack(event.track);
         remoteStreamRef.current = nextRemoteStream;
         setRemoteStream(nextRemoteStream);
+        updateDebugState();
       };
 
       peerConnection.onconnectionstatechange = () => {
+        updateDebugState();
         if (peerConnection.connectionState === "connected") {
           setPhase("active");
         }
@@ -234,10 +276,14 @@ export function useWebRtcCall({
         }
       };
 
+      peerConnection.oniceconnectionstatechange = updateDebugState;
+      peerConnection.onsignalingstatechange = updateDebugState;
+
       peerConnectionRef.current = peerConnection;
+      updateDebugState();
       return peerConnection;
     },
-    [sendSignal],
+    [sendSignal, updateDebugState],
   );
 
   const flushPendingCandidates = useCallback(async () => {
@@ -589,5 +635,6 @@ export function useWebRtcCall({
     endCall: endCurrentCall,
     toggleMic,
     toggleCamera,
+    debugState,
   };
 }

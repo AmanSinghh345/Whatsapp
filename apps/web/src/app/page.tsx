@@ -835,6 +835,7 @@ function ActiveChatPane({
         error={call.error}
         isMicMuted={call.isMicMuted}
         isCameraOff={call.isCameraOff}
+        debugState={call.debugState}
         onAccept={call.acceptCall}
         onDecline={call.endCall}
         onEnd={call.endCall}

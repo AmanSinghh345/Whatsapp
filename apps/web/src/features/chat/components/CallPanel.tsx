@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { CallPhase } from "../../realtime/useWebRtcCall";
+import type {
+  CallPhase,
+  WebRtcDebugState,
+} from "../../realtime/useWebRtcCall";
 
 interface MediaTileProps {
   label: string;
@@ -17,6 +20,7 @@ interface CallPanelProps {
   error: string | null;
   isMicMuted: boolean;
   isCameraOff: boolean;
+  debugState?: WebRtcDebugState;
   onAccept: () => void;
   onDecline: () => void;
   onEnd: () => void;
@@ -63,6 +67,7 @@ export function CallPanel({
   error,
   isMicMuted,
   isCameraOff,
+  debugState,
   onAccept,
   onDecline,
   onEnd,
@@ -145,6 +150,47 @@ export function CallPanel({
             )}
           </div>
         </div>
+
+        {phase !== "incoming" && debugState ? (
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/15 p-2 text-[11px] text-slate-300">
+            <span className="rounded-full bg-white/[0.06] px-2.5 py-1">
+              ICE: {debugState.iceConnectionState}
+            </span>
+            <span className="rounded-full bg-white/[0.06] px-2.5 py-1">
+              PC: {debugState.connectionState}
+            </span>
+            <span className="rounded-full bg-white/[0.06] px-2.5 py-1">
+              Signal: {debugState.signalingState}
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-1 ${
+                debugState.hasLocalStream
+                  ? "bg-emerald-500/15 text-emerald-100"
+                  : "bg-red-500/10 text-red-100"
+              }`}
+            >
+              Local: {debugState.hasLocalStream ? "yes" : "no"}
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-1 ${
+                debugState.hasRemoteStream
+                  ? "bg-emerald-500/15 text-emerald-100"
+                  : "bg-amber-500/10 text-amber-100"
+              }`}
+            >
+              Remote: {debugState.hasRemoteStream ? "yes" : "no"}
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-1 ${
+                debugState.usingTurn
+                  ? "bg-cyan-500/15 text-cyan-100"
+                  : "bg-amber-500/10 text-amber-100"
+              }`}
+            >
+              TURN: {debugState.usingTurn ? "on" : "off"}
+            </span>
+          </div>
+        ) : null}
 
         {phase !== "incoming" ? (
           <div className="grid gap-3 md:grid-cols-2">
