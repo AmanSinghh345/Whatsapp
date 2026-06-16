@@ -37,8 +37,48 @@ type UseWebRtcCallOptions = {
   peerUserId?: string;
 };
 
+function getRtcConfiguration(): RTCConfiguration {
+  const turnUsername = process.env.NEXT_PUBLIC_METERED_TURN_USERNAME;
+  const turnCredential = process.env.NEXT_PUBLIC_METERED_TURN_CREDENTIAL;
+
+  if (turnUsername && turnCredential) {
+    return {
+      iceServers: [
+        { urls: "stun:stun.relay.metered.ca:80" },
+        {
+          urls: "turn:global.relay.metered.ca:80",
+          username: turnUsername,
+          credential: turnCredential,
+        },
+        {
+          urls: "turn:global.relay.metered.ca:80?transport=tcp",
+          username: turnUsername,
+          credential: turnCredential,
+        },
+        {
+          urls: "turn:global.relay.metered.ca:443",
+          username: turnUsername,
+          credential: turnCredential,
+        },
+        {
+          urls: "turns:global.relay.metered.ca:443?transport=tcp",
+          username: turnUsername,
+          credential: turnCredential,
+        },
+      ],
+    };
+  }
+
+  return {
+    iceServers: [
+      { urls: "stun:stun.relay.metered.ca:80" },
+      { urls: "stun:stun.l.google.com:19302" },
+    ],
+  };
+}
+
 const RTC_CONFIGURATION: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  ...getRtcConfiguration(),
 };
 
 export function useWebRtcCall({
