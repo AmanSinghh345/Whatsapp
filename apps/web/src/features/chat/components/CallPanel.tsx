@@ -6,6 +6,8 @@ import type {
   WebRtcDebugState,
 } from "../../realtime/useWebRtcCall";
 
+const SHOW_CALL_DEBUG = process.env.NEXT_PUBLIC_SHOW_CALL_DEBUG === "true";
+
 interface MediaTileProps {
   label: string;
   stream: MediaStream | null;
@@ -151,7 +153,7 @@ export function CallPanel({
           </div>
         </div>
 
-        {phase !== "incoming" && debugState ? (
+        {SHOW_CALL_DEBUG && phase !== "incoming" && debugState ? (
           <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/15 p-2 text-[11px] text-slate-300">
             <span className="rounded-full bg-white/[0.06] px-2.5 py-1">
               ICE: {debugState.iceConnectionState}
