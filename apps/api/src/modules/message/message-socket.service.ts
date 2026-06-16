@@ -76,20 +76,8 @@ export class MessageSocketService {
     payload: UpsertReceiptDto,
   ): Promise<void> {
     try {
-      // Update receipt in database
+      // Update receipt in database. MessageService owns the broadcast payload.
       await this.messageService.upsertReceipt(userId, payload);
-
-      // Broadcast receipt update to chat room
-      this.socketGateway.broadcastMessageToChat(
-        payload.chatId,
-        SocketEvents.messageReceiptUpdated,
-        {
-          messageId: payload.messageId,
-          recipientId: userId,
-          status: payload.status,
-          updatedAt: new Date().toISOString(),
-        },
-      );
 
       // Acknowledge to sender
       socket.emit("message:receipt:upsert:ack", {

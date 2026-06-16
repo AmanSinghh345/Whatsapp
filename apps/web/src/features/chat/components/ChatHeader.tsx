@@ -14,8 +14,11 @@ interface ChatHeaderProps {
   currentUserId?: string;
   online: boolean;
   presenceText: string;
+  callAvailable?: boolean;
+  callActive?: boolean;
   onToggleSidebar: () => void;
   onToggleInfo: () => void;
+  onStartVideoCall?: () => void;
 }
 
 export function ChatHeader({
@@ -23,8 +26,11 @@ export function ChatHeader({
   currentUserId,
   online,
   presenceText,
+  callAvailable = false,
+  callActive = false,
   onToggleSidebar,
   onToggleInfo,
+  onStartVideoCall,
 }: ChatHeaderProps) {
   const title = getChatTitle(chat, currentUserId);
   const subtitle = getChatSubtitle(chat, currentUserId);
@@ -56,6 +62,33 @@ export function ChatHeader({
           {presenceText} • {subtitle}
         </p>
       </div>
+
+      <button
+        type="button"
+        aria-label="Start video call"
+        title={
+          callAvailable
+            ? "Start video call"
+            : "Video calls are available in direct chats"
+        }
+        onClick={onStartVideoCall}
+        disabled={!callAvailable || callActive}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.08] hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="h-5 w-5"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+        >
+          <path d="m16 13 5 3V8l-5 3" />
+          <rect x="3" y="6" width="13" height="12" rx="2" />
+        </svg>
+      </button>
 
       <button
         type="button"

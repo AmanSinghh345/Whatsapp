@@ -45,6 +45,8 @@ model User {
   chatMembers            ChatMember[]
   sentMessages           Message[]      @relation("MessageSender")
   receivedMessageReceipts MessageReceipt[] @relation("ReceiptRecipient")
+  messageReactions       MessageReaction[]
+  createdChatInvites     ChatInvite[]
   initiatedCalls         CallSession[]  @relation("CallInitiator")
   receivedCalls          CallSession[]  @relation("CallReceiver")
 }
@@ -60,8 +62,25 @@ model Chat {
   members      ChatMember[]
   messages     Message[]
   callSessions CallSession[]
+  invites      ChatInvite[]
 
   @@index([type, createdAt(sort: Desc), id(sort: Desc)])
+}
+
+model ChatInvite {
+  id          String    @id @default(uuid()) @db.Uuid
+  chatId      String    @db.Uuid
+  token       String    @unique
+  createdById String    @db.Uuid
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  chat      Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([chatId, revokedAt, createdAt(sort: Desc)])
+  @@index([createdById, createdAt(sort: Desc)])
 }
 
 model ChatMember {
@@ -83,20 +102,42 @@ model Message {
   id              String             @id @default(uuid()) @db.Uuid
   chatId          String             @db.Uuid
   senderId        String             @db.Uuid
+  replyToMessageId String?           @db.Uuid
   clientMessageId String
   contentType     MessageContentType
   textContent     String?
+  deletedAt       DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
   chat        Chat                @relation(fields: [chatId], references: [id], onDelete: Cascade)
   sender      User                @relation("MessageSender", fields: [senderId], references: [id], onDelete: Restrict)
+  replyTo     Message?            @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies     Message[]           @relation("MessageReplies")
   attachments MessageAttachment[]
   receipts    MessageReceipt[]
+  reactions   MessageReaction[]
 
   @@unique([chatId, senderId, clientMessageId])
   @@index([chatId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([senderId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([replyToMessageId])
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  emoji     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId, emoji])
+  @@index([userId, updatedAt(sort: Desc)])
 }
 
 model MessageAttachment {

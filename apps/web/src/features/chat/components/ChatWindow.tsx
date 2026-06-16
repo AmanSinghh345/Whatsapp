@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 import type { ChatDto, ChatMemberDto } from "@chat/shared";
 import type { MessageDto } from "../api/messages.api";
 import { ChatHeader } from "./ChatHeader";
+import { CallPanel } from "./CallPanel";
 import { EmptyChatState } from "./EmptyChatState";
 import { MessageComposer } from "./MessageComposer";
 import { MessageList } from "./MessageList";
 import { MessageThread } from "./MessageThread";
+import { useWebRtcCall } from "../../realtime/useWebRtcCall";
 import {
   getChatPresenceStatus,
   getChatTitle,
@@ -50,6 +52,9 @@ function DemoMessageThread({
     const otherUserId =
       getOtherMembers(chat, currentUserId)[0]?.userId ?? "demo-member";
     const now = Date.now();
+    const firstCreatedAt = new Date(now - 12 * 60 * 1000).toISOString();
+    const secondCreatedAt = new Date(now - 9 * 60 * 1000).toISOString();
+    const thirdCreatedAt = new Date(now - 4 * 60 * 1000).toISOString();
 
     return [
       {
@@ -60,7 +65,8 @@ function DemoMessageThread({
         contentType: "text",
         text: "The realtime shell is looking sharp.",
         receiptStatus: "seen",
-        createdAt: new Date(now - 12 * 60 * 1000).toISOString(),
+        createdAt: firstCreatedAt,
+        updatedAt: firstCreatedAt,
       },
       {
         id: `${chat.id}-seed-2`,
@@ -70,7 +76,8 @@ function DemoMessageThread({
         contentType: "text",
         text: "Good. I want it to feel fast, not fussy.",
         receiptStatus: "seen",
-        createdAt: new Date(now - 9 * 60 * 1000).toISOString(),
+        createdAt: secondCreatedAt,
+        updatedAt: secondCreatedAt,
       },
       {
         id: `${chat.id}-seed-3`,
@@ -80,7 +87,8 @@ function DemoMessageThread({
         contentType: "text",
         text: "Then this is the right amount of glow.",
         receiptStatus: "delivered",
-        createdAt: new Date(now - 4 * 60 * 1000).toISOString(),
+        createdAt: thirdCreatedAt,
+        updatedAt: thirdCreatedAt,
       },
     ];
   }, [chat, currentUserId]);
@@ -93,16 +101,20 @@ function DemoMessageThread({
         onSend={(text) => {
           setMessages((current) => [
             ...current,
-            {
-              id: `${chat.id}-${Date.now()}`,
-              chatId: chat.id,
-              senderId: currentUserId,
-              clientMessageId: `${Date.now()}`,
-              contentType: "text",
-              text,
-              receiptStatus: "sent",
-              createdAt: new Date().toISOString(),
-            },
+            (() => {
+              const createdAt = new Date().toISOString();
+              return {
+                id: `${chat.id}-${Date.now()}`,
+                chatId: chat.id,
+                senderId: currentUserId,
+                clientMessageId: `${Date.now()}`,
+                contentType: "text",
+                text,
+                receiptStatus: "sent",
+                createdAt,
+                updatedAt: createdAt,
+              };
+            })(),
           ]);
         }}
       />
@@ -125,6 +137,22 @@ export function ChatWindow({
   }
 
   const otherMembers = getOtherMembers(chat, currentUserId);
+  const callPeer =
+    chat.type === "direct" && otherMembers.length === 1
+      ? otherMembers[0]
+      : undefined;
+  const call = useWebRtcCall({
+    chat,
+    currentUserId,
+    ...(callPeer ? { peerUserId: callPeer.userId } : {}),
+  });
+  const activeCallPeer =
+    otherMembers.find((member) => member.userId === call.peerUserId) ?? callPeer;
+  const activeCallPeerName =
+    activeCallPeer?.user?.displayName ??
+    activeCallPeer?.user?.phoneE164 ??
+    activeCallPeer?.user?.email ??
+    "Caller";
   const online = otherMembers.some((member) => isOnline(member.userId));
   const presenceText = getChatPresenceStatus(otherMembers, getPresence);
   const title = getChatTitle(chat, currentUserId);
@@ -137,8 +165,25 @@ export function ChatWindow({
           currentUserId={currentUserId}
           online={online}
           presenceText={presenceText}
+          callAvailable={Boolean(callPeer) && !chat.id.startsWith("demo-chat-")}
+          callActive={call.phase !== "idle"}
           onToggleSidebar={onToggleSidebar}
           onToggleInfo={onToggleInfo}
+          onStartVideoCall={call.startCall}
+        />
+        <CallPanel
+          phase={call.phase}
+          peerName={activeCallPeerName}
+          localStream={call.localStream}
+          remoteStream={call.remoteStream}
+          error={call.error}
+          isMicMuted={call.isMicMuted}
+          isCameraOff={call.isCameraOff}
+          onAccept={call.acceptCall}
+          onDecline={call.endCall}
+          onEnd={call.endCall}
+          onToggleMic={call.toggleMic}
+          onToggleCamera={call.toggleCamera}
         />
         {chat.id.startsWith("demo-chat-") ? (
           <DemoMessageThread chat={chat} currentUserId={currentUserId} />

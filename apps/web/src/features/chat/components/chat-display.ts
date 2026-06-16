@@ -58,6 +58,46 @@ export function getUserLabel(user?: UserDto, fallback = "U") {
   return user?.displayName ?? user?.email ?? user?.phoneE164 ?? fallback;
 }
 
+function formatLastSeenTime(lastSeenAt: string) {
+  const lastSeen = new Date(lastSeenAt);
+  const lastSeenTime = lastSeen.getTime();
+
+  if (Number.isNaN(lastSeenTime)) {
+    return null;
+  }
+
+  const now = new Date();
+  const diffMs = Math.max(0, now.getTime() - lastSeenTime);
+  const minutesAgo = Math.floor(diffMs / 60_000);
+
+  if (minutesAgo < 1) {
+    return "just now";
+  }
+
+  if (minutesAgo < 60) {
+    return `${minutesAgo} min ago`;
+  }
+
+  const hoursAgo = Math.floor(minutesAgo / 60);
+  if (hoursAgo < 24) {
+    return `${hoursAgo} hr${hoursAgo === 1 ? "" : "s"} ago`;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  if (lastSeen.toDateString() === yesterday.toDateString()) {
+    return "yesterday";
+  }
+
+  const daysAgo = Math.floor(diffMs / 86_400_000);
+  if (daysAgo < 7) {
+    return lastSeen.toLocaleDateString([], { weekday: "short" });
+  }
+
+  return lastSeen.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 export function formatPresenceStatus(
   presence?: PresenceView,
   fallbackLastSeenAt?: string,
@@ -72,20 +112,9 @@ export function formatPresenceStatus(
     return "Offline";
   }
 
-  const lastSeenTime = new Date(lastSeenAt).getTime();
+  const lastSeenLabel = formatLastSeenTime(lastSeenAt);
 
-  if (Number.isNaN(lastSeenTime)) {
-    return "Offline";
-  }
-
-  const minutesAgo = Math.max(1, Math.floor((Date.now() - lastSeenTime) / 60_000));
-
-  if (minutesAgo < 60) {
-    return `Last seen ${minutesAgo}m ago`;
-  }
-
-  const hoursAgo = Math.floor(minutesAgo / 60);
-  return `Last seen ${hoursAgo}h ago`;
+  return lastSeenLabel ? `Last seen ${lastSeenLabel}` : "Offline";
 }
 
 export function getChatPresenceStatus(

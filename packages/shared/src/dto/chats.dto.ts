@@ -10,6 +10,9 @@ export type ChatDto = {
   avatarUrl?: string;
   memberIds?: Id[];
   members?: ChatMemberDto[];
+  lastMessagePreview?: string | null;
+  lastMessageAt?: ISODateString | null;
+  unreadCount?: number;
   createdAt: ISODateString;
   updatedAt: ISODateString;
 };
@@ -31,4 +34,32 @@ export type CreateDirectChatRequestDto = {
 export type CreateGroupChatRequestDto = {
   title: string;
   memberUserIds: Id[];
+};
+
+export type UpdateGroupChatRequestDto = {
+  title?: string;
+  avatarUrl?: string | null;
+};
+
+export type UpdateChatMemberRoleRequestDto = {
+  role: ChatMemberRole;
+};
+
+export type ChatInviteDto = {
+  id: Id;
+  chatId: Id;
+  token: string;
+  inviteUrl?: string;
+  createdById: Id;
+  revokedAt?: ISODateString;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+};
+
+export type CreateChatInviteResponseDto = {
+  invite: ChatInviteDto;
+};
+
+export type JoinChatByInviteResponseDto = {
+  chat: ChatDto;
 };

@@ -19,6 +19,7 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PresenceService.name);
   private readonly redis: RedisClientType;
   private redisReady = false;
+  private readonly localPresence = new Map<string, Set<string>>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -61,8 +62,13 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
     socketId: string,
   ): Promise<{ becameOnline: boolean; payload: PresenceStatePayload }> {
     if (!this.redisReady) {
+      const sockets = this.localPresence.get(userId) ?? new Set<string>();
+      const becameOnline = sockets.size === 0;
+      sockets.add(socketId);
+      this.localPresence.set(userId, sockets);
+
       return {
-        becameOnline: true,
+        becameOnline,
         payload: {
           userId,
           state: "online",
@@ -92,6 +98,23 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
     socketId: string,
   ): Promise<{ becameOffline: boolean; payload: PresenceStatePayload }> {
     if (!this.redisReady) {
+      const sockets = this.localPresence.get(userId);
+      sockets?.delete(socketId);
+
+      if (sockets && sockets.size > 0) {
+        this.localPresence.set(userId, sockets);
+        return {
+          becameOffline: false,
+          payload: {
+            userId,
+            state: "online",
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      }
+
+      this.localPresence.delete(userId);
+
       const lastSeenAt = new Date();
       await this.prisma.user.update({
         where: { id: userId },
@@ -163,12 +186,15 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
       return uniqueUserIds.map((userId) => {
         const user = usersById.get(userId);
         const lastSeenAt = user?.lastSeenAt?.toISOString();
+        const online = (this.localPresence.get(userId)?.size ?? 0) > 0;
 
         return {
           userId,
-          state: "offline",
+          state: online ? "online" : "offline",
           ...(lastSeenAt ? { lastSeenAt } : {}),
-          updatedAt: user?.updatedAt.toISOString() ?? now,
+          updatedAt: online
+            ? now
+            : lastSeenAt ?? user?.updatedAt.toISOString() ?? now,
         };
       });
     }
@@ -197,7 +223,9 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
         userId,
         state: online ? "online" : "offline",
         ...(lastSeenAt ? { lastSeenAt } : {}),
-        updatedAt: user?.updatedAt.toISOString() ?? now,
+        updatedAt: online
+          ? now
+          : lastSeenAt ?? user?.updatedAt.toISOString() ?? now,
       };
     });
   }

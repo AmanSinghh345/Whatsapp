@@ -1,8 +1,11 @@
 export const SocketEvents = {
   messageSend: "message:send",
   messageNew: "message:new",
+  messageEdited: "message:edited",
+  messageDeleted: "message:deleted",
   messageReceiptUpsert: "message:receipt:upsert",
   messageReceiptUpdated: "message:receipt:updated",
+  messageReactionUpdated: "message:reactionUpdated",
 
   typingUpdate: "typing:update",
   typingState: "typing:state",
@@ -22,4 +25,3 @@ export const SocketEvents = {
 } as const;
 
 export type SocketEventName = (typeof SocketEvents)[keyof typeof SocketEvents];
-

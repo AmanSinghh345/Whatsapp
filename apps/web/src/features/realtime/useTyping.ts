@@ -15,11 +15,6 @@ export function useTyping(chatId: string | null, currentUserId: string) {
           isTyping,
           clientTs: new Date().toISOString(),
         });
-        console.log("[typing] emitted typing:update", {
-          chatId,
-          currentUserId,
-          isTyping,
-        });
         isTypingRef.current = isTyping;
       } catch (e) {
         // non-fatal

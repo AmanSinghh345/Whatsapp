@@ -18,8 +18,10 @@ export interface MessageDto {
   id: string;
   chatId: string;
   senderId: string;
+  replyToMessageId?: string;
+  replyTo?: MessageReplyPreviewDto;
   clientMessageId: string;
-  contentType: "text" | "attachment";
+  contentType: "text" | "attachment" | "system";
   text?: string | null;
   attachments?: {
     id: string;
@@ -32,7 +34,57 @@ export interface MessageDto {
     height?: number;
   }[];
   receiptStatus?: "sent" | "delivered" | "seen";
+  receipts?: MessageReceiptDto[];
+  reactions?: MessageReactionSummaryDto[];
   createdAt: string;
+  updatedAt: string;
+  editedAt?: string;
+  deletedAt?: string;
+}
+
+export interface MessageReceiptDto {
+  recipientId: string;
+  deliveredAt?: string;
+  seenAt?: string;
+}
+
+export interface MessageReceiptUpdatedDto extends MessageReceiptDto {
+  messageId: string;
+  chatId: string;
+  status: "delivered" | "seen";
+  updatedAt: string;
+}
+
+export interface MessageReplyPreviewDto {
+  id: string;
+  senderId: string;
+  contentType: "text" | "attachment" | "system";
+  text?: string | null;
+  deletedAt?: string;
+}
+
+export type MessageReactionEmoji = "👍" | "❤️" | "😂" | "😮" | "😢";
+
+export interface MessageReactionSummaryDto {
+  emoji: MessageReactionEmoji;
+  count: number;
+  userIds: string[];
+}
+
+export interface MessageReactionUpdatedDto {
+  chatId: string;
+  messageId: string;
+  reactions: MessageReactionSummaryDto[];
+}
+
+export interface MessageEditedDto {
+  chatId: string;
+  message: MessageDto;
+}
+
+export interface MessageDeletedDto {
+  chatId: string;
+  message: MessageDto;
 }
 
 export async function fetchMessages(
@@ -77,7 +129,8 @@ export async function searchMessages(
 
 export async function sendMessage(
   chatId: string,
-  text: string
+  text: string,
+  replyToMessageId?: string,
 ): Promise<MessageDto> {
   const headers = await getAuthHeaders();
 
@@ -85,6 +138,7 @@ export async function sendMessage(
     chatId,
     contentType: "text",
     text,
+    ...(replyToMessageId ? { replyToMessageId } : {}),
     // Idempotency key: unique per send attempt
     clientMessageId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   };
@@ -104,7 +158,8 @@ export async function sendMessage(
 export async function sendAttachmentMessage(
   chatId: string,
   attachmentIds: string[],
-  text?: string
+  text?: string,
+  replyToMessageId?: string,
 ): Promise<MessageDto> {
   const headers = await getAuthHeaders();
 
@@ -113,6 +168,7 @@ export async function sendAttachmentMessage(
     contentType: "attachment",
     attachmentIds,
     ...(text?.trim() ? { text: text.trim() } : {}),
+    ...(replyToMessageId ? { replyToMessageId } : {}),
     clientMessageId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   };
 
@@ -127,13 +183,35 @@ export async function sendAttachmentMessage(
   return body.data;
 }
 
-export async function deleteMessage(messageId: string): Promise<void> {
+export async function deleteMessage(messageId: string): Promise<MessageDto> {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/messages/${messageId}`, {
     method: "DELETE",
     headers,
   });
   if (!res.ok) throw new Error(`Failed to delete message: ${res.status}`);
+
+  const body = await res.json();
+  return body.data;
+}
+
+export async function editMessage(
+  messageId: string,
+  text: string,
+): Promise<MessageDto> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/messages/${messageId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ text }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to edit message: ${res.status}`);
+  }
+
+  const body = await res.json();
+  return body.data;
 }
 
 export async function upsertMessageReceipt(
@@ -145,10 +223,34 @@ export async function upsertMessageReceipt(
   const res = await fetch(`${API_BASE}/messages/receipt/upsert`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ chatId, messageId, status }),
+    body: JSON.stringify({
+      chatId,
+      messageId,
+      status,
+      clientReceivedAt: new Date().toISOString(),
+    }),
   });
 
   if (!res.ok) {
     throw new Error(`Failed to update message receipt: ${res.status}`);
   }
+}
+
+export async function toggleMessageReaction(
+  messageId: string,
+  emoji: MessageReactionEmoji,
+): Promise<MessageReactionUpdatedDto> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/messages/${messageId}/reactions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ emoji }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to update reaction: ${res.status}`);
+  }
+
+  const body = await res.json();
+  return body.data;
 }

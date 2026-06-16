@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ProtectedRoute } from "../../features/auth/components/protected-route";
 import { useAuthStore } from "../../features/auth/store/auth.store";
+import {
+  getBrowserNotificationStatus,
+  requestBrowserNotifications,
+  type BrowserNotificationStatus,
+} from "../../features/realtime/notifications";
 import { updateMe } from "../../features/user/api/users.api";
 
 export default function ProfilePage() {
@@ -13,8 +18,14 @@ export default function ProfilePage() {
   const [phoneE164, setPhoneE164] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [notificationStatus, setNotificationStatus] =
+    useState<BrowserNotificationStatus>("default");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setNotificationStatus(getBrowserNotificationStatus());
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -44,6 +55,22 @@ export default function ProfilePage() {
       setError(error instanceof Error ? error.message : "Failed to save profile.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleEnableNotifications() {
+    setMessage(null);
+    setError(null);
+
+    const nextStatus = await requestBrowserNotifications();
+    setNotificationStatus(nextStatus);
+
+    if (nextStatus === "granted") {
+      setMessage("Browser notifications enabled.");
+    } else if (nextStatus === "denied") {
+      setError("Notifications are blocked in this browser.");
+    } else if (nextStatus === "unsupported") {
+      setError("This browser does not support notifications.");
     }
   }
 
@@ -78,6 +105,37 @@ export default function ProfilePage() {
           </header>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+            <section className="rounded-2xl border border-white/10 bg-[#20232b] px-4 py-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-100">
+                    Browser notifications
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {notificationStatus === "granted"
+                      ? "Enabled for incoming calls and new messages."
+                      : notificationStatus === "denied"
+                        ? "Blocked by browser settings."
+                        : notificationStatus === "unsupported"
+                          ? "Not supported in this browser."
+                          : "Enable alerts for calls and messages."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleEnableNotifications}
+                  disabled={
+                    notificationStatus === "granted" ||
+                    notificationStatus === "denied" ||
+                    notificationStatus === "unsupported"
+                  }
+                  className="rounded-full border border-emerald-400/30 bg-emerald-500/15 px-4 py-2 text-xs font-bold text-emerald-200 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.04] disabled:text-slate-500"
+                >
+                  {notificationStatus === "granted" ? "Enabled" : "Enable"}
+                </button>
+              </div>
+            </section>
+
             <div>
               <label htmlFor="displayName" className="mb-2 block text-sm font-semibold text-slate-300">
                 Display name

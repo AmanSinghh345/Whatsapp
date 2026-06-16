@@ -8,6 +8,7 @@ import { useTypingStore } from "../../realtime/typing.store";
 import { MessageComposer } from "./MessageComposer";
 import { MessageList } from "./MessageList";
 import type { ChatDto } from "@chat/shared";
+import { getUserLabel } from "./chat-display";
 
 interface Props {
   chatId: string;
@@ -27,11 +28,23 @@ export function MessageThread({
     messages,
     loading,
     sending,
+    editingMessageId,
+    deletingMessageId,
+    replyToMessage,
     error,
     send,
     sendAttachment,
     appendMessage,
+    updateMessage,
+    updateQuotedMessage,
     updateReceiptStatus,
+    updateMessageReactions,
+    reactToMessage,
+    edit,
+    deleteMessage,
+    setReplyToMessage,
+    clearReplyToMessage,
+    pendingReactionMessageIds,
     bottomRef,
   } = useMessages(chatId, currentUserId);
 
@@ -44,7 +57,16 @@ export function MessageThread({
     chatId,
     currentUserId,
     onMessage: handleIncoming,
+    onMessageEdited: (message) => {
+      updateMessage(message);
+      updateQuotedMessage(message);
+    },
+    onMessageDeleted: (message) => {
+      updateMessage(message);
+      updateQuotedMessage(message);
+    },
     onReceiptUpdate: updateReceiptStatus,
+    onReactionUpdate: updateMessageReactions,
   });
 
   const { onKeyStroke } = useTyping(chatId, currentUserId);
@@ -61,6 +83,13 @@ export function MessageThread({
     typingNames.length === 1
       ? `${typingNames[0]} is typing...`
       : `${typingNames.length} people are typing...`;
+  const replyToLabel = replyToMessage
+    ? getUserLabel(
+        chat?.members?.find((member) => member.userId === replyToMessage.senderId)
+          ?.user,
+        replyToMessage.senderId === currentUserId ? "You" : "Member",
+      )
+    : undefined;
 
   useEffect(() => {
     if (!highlightedMessageId) return;
@@ -72,7 +101,7 @@ export function MessageThread({
   }, [highlightedMessageId, messages]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#101114]">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#101114]">
       <MessageList
         chat={chat}
         messages={messages}
@@ -80,6 +109,13 @@ export function MessageThread({
         loading={loading}
         typing={isTyping}
         typingLabel={typingLabel}
+        onReact={reactToMessage}
+        onEdit={edit}
+        onDelete={deleteMessage}
+        onReply={setReplyToMessage}
+        pendingReactionMessageIds={pendingReactionMessageIds}
+        editingMessageId={editingMessageId}
+        deletingMessageId={deletingMessageId}
         highlightedMessageId={highlightedMessageId}
         bottomRef={bottomRef}
         messageRefs={messageRefs}
@@ -95,6 +131,9 @@ export function MessageThread({
         onSend={send}
         onAttach={sendAttachment}
         onKeyStroke={onKeyStroke}
+        replyTo={replyToMessage}
+        replyToLabel={replyToLabel}
+        onCancelReply={clearReplyToMessage}
         disabled={sending}
       />
     </div>

@@ -8,6 +8,7 @@ import { MessageModule } from "./modules/message/message.module.js";
 import { SocketModule } from "./modules/realtime/socket.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
 import { MediaModule } from "./modules/media/media.module.js";
+import { CallModule } from "./modules/call/call.module.js";
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { MediaModule } from "./modules/media/media.module.js";
     ChatModule,
     MessageModule,
     MediaModule,
+    CallModule,
     SocketModule,
     HealthModule,
   ],

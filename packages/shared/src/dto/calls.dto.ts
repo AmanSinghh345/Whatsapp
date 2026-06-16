@@ -6,10 +6,16 @@ export type CallSessionDto = {
   id: Id;
   chatId?: Id;
   createdById: Id;
+  receiverId: Id;
   status: CallStatus;
   createdAt: ISODateString;
   startedAt?: ISODateString;
   endedAt?: ISODateString;
+};
+
+export type CreateCallRequestDto = {
+  chatId: Id;
+  receiverId?: Id;
 };
 
 export type WebRtcSignalType = "offer" | "answer" | "ice-candidate";
@@ -21,4 +27,3 @@ export type WebRtcSignalDto = {
   sdp?: string;
   candidate?: unknown;
 };
-

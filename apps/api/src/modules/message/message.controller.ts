@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -22,6 +23,9 @@ import type {
   SendMessageRequestDto,
   UpsertReceiptDto,
   SearchMessagesResponseDto,
+  MessageReactionEmoji,
+  MessageReactionUpdatedDto,
+  EditMessageRequestDto,
 } from "@chat/shared";
 
 @Controller("messages")
@@ -147,6 +151,44 @@ export class MessageController {
   }
 
   /**
+   * Toggle current user's reaction for a message
+   * POST /api/messages/:messageId/reactions
+   * Body: { emoji: MessageReactionEmoji }
+   */
+  @Post(":messageId/reactions")
+  async toggleReaction(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("messageId", new ParseUUIDPipe()) messageId: string,
+    @Body("emoji") emoji: MessageReactionEmoji,
+  ): Promise<{ data: MessageReactionUpdatedDto }> {
+    const result = await this.messageService.toggleReaction(
+      messageId,
+      user.id ?? user.firebaseUid,
+      emoji,
+    );
+    return { data: result };
+  }
+
+  /**
+   * Edit own text message
+   * PATCH /api/messages/:messageId
+   * Body: { text: string }
+   */
+  @Patch(":messageId")
+  async editMessage(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("messageId", new ParseUUIDPipe()) messageId: string,
+    @Body() request: EditMessageRequestDto,
+  ): Promise<{ data: MessageDto }> {
+    const message = await this.messageService.editMessage(
+      messageId,
+      user.id ?? user.firebaseUid,
+      request,
+    );
+    return { data: message };
+  }
+
+  /**
    * Get single message by ID
    * GET /api/messages/:messageId
    */
@@ -167,12 +209,15 @@ export class MessageController {
    * DELETE /api/messages/:messageId
    */
   @Delete(":messageId")
-  @HttpCode(204)
   async deleteMessage(
     @GetUser() user: AuthenticatedRequestUser,
     @Param("messageId", new ParseUUIDPipe()) messageId: string,
-  ): Promise<void> {
-    await this.messageService.deleteMessage(messageId, user.id ?? user.firebaseUid);
+  ): Promise<{ data: MessageDto }> {
+    const message = await this.messageService.deleteMessage(
+      messageId,
+      user.id ?? user.firebaseUid,
+    );
+    return { data: message };
   }
 
   private parseLimit(

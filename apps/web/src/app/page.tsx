@@ -1,20 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChatDto, ChatMemberDto, UserDto } from "@chat/shared";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { ChatDto, ChatInviteDto, ChatMemberDto, UserDto } from "@chat/shared";
 import { ProtectedRoute } from "../features/auth/components/protected-route";
 import { useAuthStore } from "../features/auth/store/auth.store";
-import { createDirectChat, fetchChats } from "../features/chat/api/chats.api";
+import {
+  addGroupMembers,
+  createChatInvite,
+  createDirectChat,
+  createGroupChat,
+  fetchActiveChatInvite,
+  fetchChats,
+  joinChatByInvite,
+  leaveGroup,
+  removeGroupMember,
+  revokeChatInvite,
+  updateChatMemberRole,
+  updateGroupChat,
+} from "../features/chat/api/chats.api";
 import {
   searchMessages,
   type MessageDto,
 } from "../features/chat/api/messages.api";
+import { uploadGroupAvatar } from "../features/chat/api/media.api";
+import { CallPanel } from "../features/chat/components/CallPanel";
 import { MessageThread } from "../features/chat/components/MessageThread";
+import { useLiveChatPreviews } from "../features/chat/hooks/useLiveChatPreviews";
 import { usePresence } from "../features/realtime/usePresence";
+import { useBrowserNotifications } from "../features/realtime/useBrowserNotifications";
 import { getSocket } from "../features/realtime/socket.client";
 import { useGlobalTypingListener } from "../features/realtime/useTypingIndicator";
 import { useTypingStore } from "../features/realtime/typing.store";
+import { useWebRtcCall } from "../features/realtime/useWebRtcCall";
 import { PresenceDot } from "../features/chat/components/PresenceDot";
 import { searchUserByPhone } from "../features/user/api/users.api";
 
@@ -43,10 +61,68 @@ function getChatSubtitle(chat: ChatDto, currentUserId?: string) {
   return otherUser?.phoneE164 ?? otherUser?.email ?? "Direct message";
 }
 
+function parseInviteToken(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const url = new URL(trimmed);
+    return url.searchParams.get("invite") ?? trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
 type PresenceView = {
   state: "online" | "offline";
   lastSeenAt?: string;
 };
+
+type CreatePanelTab = "direct" | "group" | "invite";
+type ChatTypeFilter = "all" | "group" | "direct";
+
+function formatLastSeenTime(lastSeenAt: string) {
+  const lastSeen = new Date(lastSeenAt);
+  const lastSeenTime = lastSeen.getTime();
+
+  if (Number.isNaN(lastSeenTime)) {
+    return null;
+  }
+
+  const now = new Date();
+  const diffMs = Math.max(0, now.getTime() - lastSeenTime);
+  const minutesAgo = Math.floor(diffMs / 60_000);
+
+  if (minutesAgo < 1) {
+    return "just now";
+  }
+
+  if (minutesAgo < 60) {
+    return `${minutesAgo} min ago`;
+  }
+
+  const hoursAgo = Math.floor(minutesAgo / 60);
+  if (hoursAgo < 24) {
+    return `${hoursAgo} hr${hoursAgo === 1 ? "" : "s"} ago`;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  if (lastSeen.toDateString() === yesterday.toDateString()) {
+    return "yesterday";
+  }
+
+  const daysAgo = Math.floor(diffMs / 86_400_000);
+  if (daysAgo < 7) {
+    return lastSeen.toLocaleDateString([], { weekday: "short" });
+  }
+
+  return lastSeen.toLocaleDateString([], { month: "short", day: "numeric" });
+}
 
 function formatPresenceStatus(presence?: PresenceView, fallbackLastSeenAt?: string) {
   if (presence?.state === "online") {
@@ -59,18 +135,9 @@ function formatPresenceStatus(presence?: PresenceView, fallbackLastSeenAt?: stri
     return "Offline";
   }
 
-  const lastSeenTime = new Date(lastSeenAt).getTime();
+  const lastSeenLabel = formatLastSeenTime(lastSeenAt);
 
-  if (Number.isNaN(lastSeenTime)) {
-    return "Offline";
-  }
-
-  const minutesAgo = Math.max(
-    1,
-    Math.floor((Date.now() - lastSeenTime) / 60_000),
-  );
-
-  return `Last seen ${minutesAgo} min ago`;
+  return lastSeenLabel ? `Last seen ${lastSeenLabel}` : "Offline";
 }
 
 function getChatPresenceStatus(
@@ -107,24 +174,590 @@ function Avatar({
   user,
   label,
   size = "md",
+  imageUrl,
 }: {
   user?: UserDto | undefined;
   label: string;
   size?: "sm" | "md" | "lg";
+  imageUrl?: string | undefined;
 }) {
   const sizeClass =
     size === "lg" ? "h-14 w-14 text-lg" : size === "sm" ? "h-11 w-11" : "h-12 w-12";
+  const avatarUrl = imageUrl ?? user?.avatarUrl;
 
   return (
     <div
       className={`flex ${sizeClass} shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-emerald-500 to-slate-700 text-sm font-semibold text-white ring-1 ring-white/10`}
     >
-      {user?.avatarUrl ? (
+      {avatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+        <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
       ) : (
         label.slice(0, 1).toUpperCase() || "U"
       )}
+    </div>
+  );
+}
+
+function VideoCallIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+    >
+      <path d="m16 13 5 3V8l-5 3" />
+      <rect x="3" y="6" width="13" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  const trimmedQuery = query.trim();
+
+  if (!trimmedQuery) {
+    return text;
+  }
+
+  const matchIndex = text.toLowerCase().indexOf(trimmedQuery.toLowerCase());
+
+  if (matchIndex < 0) {
+    return text;
+  }
+
+  const before = text.slice(0, matchIndex);
+  const match = text.slice(matchIndex, matchIndex + trimmedQuery.length);
+  const after = text.slice(matchIndex + trimmedQuery.length);
+
+  return (
+    <>
+      {before}
+      <mark className="rounded bg-emerald-400/20 px-0.5 text-emerald-100">
+        {match}
+      </mark>
+      {after}
+    </>
+  );
+}
+
+function ActiveChatPane({
+  chat,
+  user,
+  getPresence,
+  isOnline,
+  messageSearchQuery,
+  messageSearchResults,
+  messageSearchLoading,
+  messageSearchError,
+  highlightedMessageId,
+  groupTitleDraft,
+  groupMemberPhoneSearch,
+  groupInvite,
+  groupInviteUrl,
+  groupAvatarPending,
+  groupDetailsPending,
+  groupMemberActionPending,
+  leaveGroupPending,
+  groupInvitePending,
+  removingGroupMemberIds,
+  updatingRoleMemberIds,
+  onMessageSearchChange,
+  onMessageSearch,
+  onClearMessageSearch,
+  onHighlightMessage,
+  onGroupTitleDraftChange,
+  onGroupAvatarSelected,
+  onSaveGroupDetails,
+  onCreateGroupInvite,
+  onCopyGroupInvite,
+  onRevokeGroupInvite,
+  onGroupMemberPhoneSearchChange,
+  onAddGroupMember,
+  onRemoveGroupMember,
+  onUpdateGroupMemberRole,
+  onLeaveGroup,
+}: {
+  chat: ChatDto;
+  user: UserDto;
+  getPresence: (userId: string) => PresenceView | undefined;
+  isOnline: (userId: string) => boolean;
+  messageSearchQuery: string;
+  messageSearchResults: MessageDto[];
+  messageSearchLoading: boolean;
+  messageSearchError: string | null;
+  highlightedMessageId: string | null;
+  groupTitleDraft: string;
+  groupMemberPhoneSearch: string;
+  groupInvite: ChatInviteDto | null;
+  groupInviteUrl: string;
+  groupAvatarPending: boolean;
+  groupDetailsPending: boolean;
+  groupMemberActionPending: boolean;
+  leaveGroupPending: boolean;
+  groupInvitePending: boolean;
+  removingGroupMemberIds: Set<string>;
+  updatingRoleMemberIds: Set<string>;
+  onMessageSearchChange: (value: string) => void;
+  onMessageSearch: (event: FormEvent<HTMLFormElement>) => void;
+  onClearMessageSearch: () => void;
+  onHighlightMessage: (messageId: string) => void;
+  onGroupTitleDraftChange: (value: string) => void;
+  onGroupAvatarSelected: (file: File) => void;
+  onSaveGroupDetails: (event: FormEvent<HTMLFormElement>) => void;
+  onCreateGroupInvite: () => void;
+  onCopyGroupInvite: () => void;
+  onRevokeGroupInvite: () => void;
+  onGroupMemberPhoneSearchChange: (value: string) => void;
+  onAddGroupMember: (event: FormEvent<HTMLFormElement>) => void;
+  onRemoveGroupMember: (userId: string) => void;
+  onUpdateGroupMemberRole: (
+    userId: string,
+    role: ChatMemberDto["role"],
+  ) => void;
+  onLeaveGroup: () => void;
+}) {
+  const otherMembers = getOtherMembers(chat, user.id);
+  const otherUser = otherMembers[0]?.user;
+  const title = getChatTitle(chat, user.id);
+  const presenceStatus = getChatPresenceStatus(otherMembers, getPresence);
+  const hasOnlineMember = otherMembers.some((member) => isOnline(member.userId));
+  const callPeer =
+    chat.type === "direct" && otherMembers.length === 1
+      ? otherMembers[0]
+      : undefined;
+  const call = useWebRtcCall({
+    chat,
+    currentUserId: user.id,
+    ...(callPeer ? { peerUserId: callPeer.userId } : {}),
+  });
+  const activeCallPeer =
+    otherMembers.find((member) => member.userId === call.peerUserId) ?? callPeer;
+  const activeCallPeerName =
+    activeCallPeer?.user?.displayName ??
+    activeCallPeer?.user?.phoneE164 ??
+    activeCallPeer?.user?.email ??
+    "Caller";
+  const callAvailable = Boolean(callPeer);
+  const currentMember = chat.members?.find((member) => member.userId === user.id);
+  const canManageGroup = chat.type === "group" && currentMember?.role === "admin";
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const trimmedSearchQuery = messageSearchQuery.trim();
+  const showSearchResults = trimmedSearchQuery.length > 0;
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <header className="relative shrink-0 border-b border-white/10 bg-[#15171c] px-4 py-3 sm:px-5">
+        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <button
+            type="button"
+            onClick={() => setDetailsOpen(true)}
+            className="flex min-w-0 items-center gap-4 rounded-2xl text-left transition hover:bg-white/[0.04] focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+          >
+            <div className="relative">
+              <Avatar
+                user={chat.type === "group" ? undefined : otherUser}
+                label={title}
+                size="md"
+                imageUrl={chat.type === "group" ? chat.avatarUrl : undefined}
+              />
+              <span className="absolute bottom-0 right-0 rounded-full bg-[#15171c] p-1">
+                <PresenceDot online={hasOnlineMember} size="md" />
+              </span>
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold text-white">{title}</h1>
+              <p className="mt-1 flex items-center gap-2 truncate text-sm text-slate-400">
+                {hasOnlineMember ? (
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                ) : null}
+                {presenceStatus}
+              </p>
+            </div>
+          </button>
+
+          <div className="relative flex min-w-0 items-center gap-2 xl:w-[min(42vw,480px)]">
+            <form
+              onSubmit={onMessageSearch}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-[#20232b] px-3 py-2 text-slate-400 transition focus-within:border-emerald-400/60 focus-within:bg-[#242832]"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+              <input
+                value={messageSearchQuery}
+                onChange={(event) => onMessageSearchChange(event.target.value)}
+                placeholder="Search messages"
+                className="min-w-0 flex-1 bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
+              />
+              {trimmedSearchQuery ? (
+                <button
+                  type="button"
+                  onClick={onClearMessageSearch}
+                  aria-label="Clear message search"
+                  title="Clear"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-white/[0.08] hover:text-white"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6 6 18" />
+                    <path d="m6 6 12 12" />
+                  </svg>
+                </button>
+              ) : null}
+            </form>
+
+            <button
+              type="button"
+              aria-label="Start video call"
+              title={
+                callAvailable
+                  ? "Start video call"
+                  : "Video calls are available in direct chats"
+              }
+              onClick={call.startCall}
+              disabled={!callAvailable || call.phase !== "idle"}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/15 text-emerald-300 transition hover:bg-emerald-500/25 hover:text-emerald-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.04] disabled:text-slate-500"
+            >
+              <VideoCallIcon />
+            </button>
+          </div>
+
+          {showSearchResults ? (
+            <div className="absolute right-12 top-[52px] z-30 max-h-72 w-[min(420px,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#20232b]/98 p-2 shadow-2xl shadow-black/40 backdrop-blur">
+              <div className="flex items-center justify-between px-2 pb-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Search messages
+                </p>
+                {messageSearchLoading ? (
+                  <span className="text-xs text-emerald-300">Searching...</span>
+                ) : null}
+              </div>
+              {messageSearchError ? (
+                <p className="rounded-xl border border-red-300/15 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+                  {messageSearchError}
+                </p>
+              ) : !messageSearchLoading && trimmedSearchQuery.length < 2 ? (
+                <p className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-400">
+                  Enter at least 2 characters.
+                </p>
+              ) : !messageSearchLoading && messageSearchResults.length === 0 ? (
+                <p className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-400">
+                  No messages found
+                </p>
+              ) : null}
+
+              {messageSearchResults.length > 0 ? (
+                <div className="space-y-1">
+                  {messageSearchResults.map((message) => (
+                  <button
+                    key={message.id}
+                    type="button"
+                    onClick={() => onHighlightMessage(message.id)}
+                    className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/[0.06]"
+                  >
+                    <span className="block truncate text-sm leading-5 text-white/85">
+                      <HighlightedText text={message.text ?? "Message"} query={trimmedSearchQuery} />
+                    </span>
+                    <span className="mt-1 block text-[11px] text-white/35">
+                      {new Date(message.createdAt).toLocaleString()}
+                    </span>
+                  </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </header>
+
+      {detailsOpen ? (
+        <aside className="absolute inset-y-0 right-0 z-40 flex w-full max-w-[min(430px,100%)] flex-col border-l border-white/10 bg-[#15171c] shadow-2xl shadow-black/50">
+          <div className="flex h-16 shrink-0 items-center gap-3 border-b border-white/10 px-4">
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(false)}
+              aria-label="Close details"
+              title="Close details"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <h2 className="truncate text-base font-bold text-white">
+              {chat.type === "group" ? "Group info" : "Contact info"}
+            </h2>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+            <section className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+              <p className="mb-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {chat.type === "group" ? "Group overview" : "Contact overview"}
+              </p>
+              <div className="flex flex-col items-center text-center">
+              <Avatar
+                user={chat.type === "group" ? undefined : otherUser}
+                label={title}
+                size="lg"
+                imageUrl={chat.type === "group" ? chat.avatarUrl : undefined}
+              />
+              <h3 className="mt-3 max-w-full truncate text-xl font-bold text-white">
+                {title}
+              </h3>
+              <p className="mt-1 truncate text-sm text-slate-400">
+                {chat.type === "group"
+                  ? `${chat.members?.length ?? 0} members`
+                  : presenceStatus}
+              </p>
+              </div>
+            </section>
+
+            {chat.type === "direct" ? (
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-[#20232b] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Phone
+                  </p>
+                  <p className="mt-2 truncate text-sm text-slate-100">
+                    {otherUser?.phoneE164 ?? "Not available"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-[#20232b] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Email
+                  </p>
+                  <p className="mt-2 truncate text-sm text-slate-100">
+                    {otherUser?.email ?? "Not available"}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {chat.type === "group" ? (
+              <div className="space-y-4">
+                <section className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/80">
+                    Members
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {(chat.members ?? []).map((member) => {
+                      const memberName =
+                        member.user?.displayName ??
+                        member.user?.phoneE164 ??
+                        member.user?.email ??
+                        "Member";
+                      const isCurrentUser = member.userId === user.id;
+                      const canRemove =
+                        canManageGroup &&
+                        !isCurrentUser &&
+                        (chat.members?.length ?? 0) > 2;
+                      const nextRole =
+                        member.role === "admin" ? "member" : "admin";
+                      const canChangeRole = canManageGroup && !isCurrentUser;
+
+                      return (
+                        <div
+                          key={member.userId}
+                          className="flex min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-[#20232b]/80 px-3 py-2.5"
+                        >
+                          <Avatar user={member.user} label={memberName} size="sm" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-bold text-white">
+                              {memberName}
+                            </p>
+                            <p className="mt-1 inline-flex rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                              {member.role}
+                            </p>
+                          </div>
+                          {canChangeRole ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onUpdateGroupMemberRole(member.userId, nextRole)
+                              }
+                              disabled={updatingRoleMemberIds.has(member.userId)}
+                              className="h-7 rounded-full border border-emerald-300/20 bg-emerald-500/10 px-2.5 text-[11px] font-bold text-emerald-100 transition hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {nextRole === "admin" ? "Promote" : "Demote"}
+                            </button>
+                          ) : null}
+                          {canRemove ? (
+                            <button
+                              type="button"
+                              onClick={() => onRemoveGroupMember(member.userId)}
+                              disabled={removingGroupMemberIds.has(member.userId)}
+                              aria-label={`Remove ${memberName}`}
+                              title={`Remove ${memberName}`}
+                              className="flex h-7 w-7 items-center justify-center rounded-full border border-red-300/15 bg-red-500/10 text-red-100/80 transition hover:bg-red-500/15 hover:text-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              x
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                {canManageGroup ? (
+                  <>
+                  <section className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Group actions
+                    </p>
+                    <label className="flex h-11 cursor-pointer items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-sm font-bold text-slate-100 transition hover:bg-white/[0.1]">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        disabled={groupAvatarPending}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+
+                          if (file) {
+                            onGroupAvatarSelected(file);
+                          }
+                        }}
+                      />
+                      {groupAvatarPending ? "Uploading avatar" : "Change avatar"}
+                    </label>
+
+                    <form onSubmit={onSaveGroupDetails} className="flex min-w-0 gap-2">
+                      <input
+                        id="group-title-draft"
+                        value={groupTitleDraft}
+                        onChange={(event) =>
+                          onGroupTitleDraftChange(event.target.value)
+                        }
+                        placeholder="Group name"
+                        className="h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-[#20232b] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                      />
+                      <button
+                        type="submit"
+                        disabled={groupDetailsPending}
+                        className="h-11 shrink-0 rounded-xl border border-white/10 bg-white/[0.06] px-4 text-sm font-bold text-slate-100 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {groupDetailsPending ? "Saving" : "Save"}
+                      </button>
+                    </form>
+
+                    <form onSubmit={onAddGroupMember} className="flex min-w-0 gap-2">
+                      <input
+                        id="active-group-member-phone"
+                        value={groupMemberPhoneSearch}
+                        onChange={(event) =>
+                          onGroupMemberPhoneSearchChange(event.target.value)
+                        }
+                        placeholder="Add member phone"
+                        className="h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-[#20232b] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                      />
+                      <button
+                        type="submit"
+                        disabled={groupMemberActionPending}
+                        className="h-11 shrink-0 rounded-xl bg-emerald-500 px-4 text-sm font-bold text-[#07110d] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {groupMemberActionPending ? "Adding" : "Add"}
+                      </button>
+                    </form>
+                  </section>
+
+                  <section className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Invite link
+                    </p>
+                    <div className="min-w-0 rounded-xl border border-white/10 bg-[#20232b] p-3">
+                      {groupInvite ? (
+                        <p className="truncate pb-3 text-xs text-slate-300">
+                          {groupInviteUrl}
+                        </p>
+                      ) : (
+                        <p className="pb-3 text-xs text-slate-500">
+                          Generate an invite link to let people join this group.
+                        </p>
+                      )}
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={onCreateGroupInvite}
+                          disabled={groupInvitePending}
+                          className="h-10 rounded-lg border border-white/10 bg-white/[0.06] px-2 text-xs font-bold text-slate-100 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {groupInvite ? "Regenerate" : "Generate"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onCopyGroupInvite}
+                          disabled={!groupInvite || groupInvitePending}
+                          className="h-10 rounded-lg border border-emerald-300/20 bg-emerald-500/10 px-2 text-xs font-bold text-emerald-100 transition hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Copy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onRevokeGroupInvite}
+                          disabled={!groupInvite || groupInvitePending}
+                          className="h-10 rounded-lg border border-red-300/20 bg-red-500/10 px-2 text-xs font-bold text-red-100 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Revoke
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                  </>
+                ) : null}
+
+                <section className="rounded-2xl border border-red-300/15 bg-red-500/5 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-200/70">
+                    Danger zone
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onLeaveGroup}
+                    disabled={leaveGroupPending}
+                    className="mt-3 h-10 w-full rounded-xl border border-red-300/20 bg-red-500/10 text-sm font-bold text-red-100 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {leaveGroupPending ? "Leaving" : "Leave group"}
+                  </button>
+                </section>
+              </div>
+            ) : null}
+          </div>
+        </aside>
+      ) : null}
+
+      <CallPanel
+        phase={call.phase}
+        peerName={activeCallPeerName}
+        localStream={call.localStream}
+        remoteStream={call.remoteStream}
+        error={call.error}
+        isMicMuted={call.isMicMuted}
+        isCameraOff={call.isCameraOff}
+        onAccept={call.acceptCall}
+        onDecline={call.endCall}
+        onEnd={call.endCall}
+        onToggleMic={call.toggleMic}
+        onToggleCamera={call.toggleCamera}
+      />
+
+      <MessageThread
+        chatId={chat.id}
+        currentUserId={user.id}
+        chat={chat}
+        highlightedMessageId={highlightedMessageId}
+      />
     </div>
   );
 }
@@ -135,9 +768,37 @@ export default function HomePage() {
 
   const [chats, setChats] = useState<ChatDto[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
+  const [chatTypeFilter, setChatTypeFilter] = useState<ChatTypeFilter>("all");
+  const [createPanelOpen, setCreatePanelOpen] = useState(false);
+  const [createPanelTab, setCreatePanelTab] = useState<CreatePanelTab>("direct");
   const [phoneSearch, setPhoneSearch] = useState("");
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupPhoneSearch, setGroupPhoneSearch] = useState("");
+  const [groupMembers, setGroupMembers] = useState<UserDto[]>([]);
+  const [inviteJoinInput, setInviteJoinInput] = useState("");
+  const [activeGroupMemberPhoneSearch, setActiveGroupMemberPhoneSearch] =
+    useState("");
+  const [activeGroupTitleDraft, setActiveGroupTitleDraft] = useState("");
+  const [activeGroupInvite, setActiveGroupInvite] =
+    useState<ChatInviteDto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [isAddingGroupMember, setIsAddingGroupMember] = useState(false);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [isManagingGroupMember, setIsManagingGroupMember] = useState(false);
+  const [isUpdatingGroupDetails, setIsUpdatingGroupDetails] = useState(false);
+  const [isUpdatingGroupAvatar, setIsUpdatingGroupAvatar] = useState(false);
+  const [isLeavingGroup, setIsLeavingGroup] = useState(false);
+  const [isJoiningInvite, setIsJoiningInvite] = useState(false);
+  const [isLoadingInvite, setIsLoadingInvite] = useState(false);
+  const [isUpdatingInvite, setIsUpdatingInvite] = useState(false);
+  const [removingGroupMemberIds, setRemovingGroupMemberIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [updatingRoleMemberIds, setUpdatingRoleMemberIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [messageSearchResults, setMessageSearchResults] = useState<MessageDto[]>([]);
@@ -147,7 +808,6 @@ export default function HomePage() {
     null,
   );
   const typingByChatId = useTypingStore((state) => state.typingByChatId);
-  const clearTypingChat = useTypingStore((state) => state.clearChat);
 
   useGlobalTypingListener();
 
@@ -155,6 +815,37 @@ export default function HomePage() {
     () => chats.find((chat) => chat.id === selectedChatId) ?? null,
     [chats, selectedChatId],
   );
+  const filteredChats = useMemo(() => {
+    const query = chatSearchQuery.trim().toLowerCase();
+
+    return chats.filter((chat) => {
+      if (chatTypeFilter !== "all" && chat.type !== chatTypeFilter) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      const title = getChatTitle(chat, user?.id).toLowerCase();
+      const subtitle = getChatSubtitle(chat, user?.id).toLowerCase();
+      const preview = (chat.lastMessagePreview ?? "").toLowerCase();
+
+      return (
+        title.includes(query) ||
+        subtitle.includes(query) ||
+        preview.includes(query)
+      );
+    });
+  }, [chatSearchQuery, chatTypeFilter, chats, user?.id]);
+  const selectedChatMembership = selectedChat?.members?.find(
+    (member) => member.userId === user?.id,
+  );
+  const canManageSelectedGroupInvite =
+    selectedChat?.type === "group" && selectedChatMembership?.role === "admin";
+  const activeGroupInviteUrl = activeGroupInvite
+    ? `${typeof window === "undefined" ? "" : window.location.origin}/?invite=${activeGroupInvite.token}`
+    : "";
 
   const otherUserIds = useMemo(() => {
     if (!user) return [];
@@ -164,6 +855,17 @@ export default function HomePage() {
   }, [chats, user?.id]);
 
   const { getPresence, isOnline } = usePresence(otherUserIds);
+  useBrowserNotifications({
+    chats,
+    currentUserId: user?.id,
+    selectedChatId,
+    onSelectChat: setSelectedChatId,
+  });
+  useLiveChatPreviews({
+    currentUserId: user?.id,
+    selectedChatId,
+    setChats,
+  });
 
   async function loadChats() {
     setIsLoading(true);
@@ -215,6 +917,7 @@ export default function HomePage() {
 
       setSelectedChatId(chat.id);
       setPhoneSearch("");
+      setCreatePanelOpen(false);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to create chat.");
     } finally {
@@ -222,17 +925,374 @@ export default function HomePage() {
     }
   }
 
-  async function handleMessageSearch(event: React.FormEvent<HTMLFormElement>) {
+  async function handleAddGroupMember(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    const trimmedPhone = groupPhoneSearch.trim();
+    if (!trimmedPhone) {
+      setError("Enter a phone number to add to the group.");
+      return;
+    }
+
+    setIsAddingGroupMember(true);
+    setError(null);
+
+    try {
+      const foundUser = await searchUserByPhone(trimmedPhone);
+      if (foundUser.id === user?.id) {
+        throw new Error("You are already included as the group admin.");
+      }
+
+      setGroupMembers((current) => {
+        if (current.some((member) => member.id === foundUser.id)) {
+          return current;
+        }
+
+        return [...current, foundUser];
+      });
+      setGroupPhoneSearch("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to add member.");
+    } finally {
+      setIsAddingGroupMember(false);
+    }
+  }
+
+  async function handleCreateGroupChat(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedTitle = groupTitle.trim();
+    if (!trimmedTitle) {
+      setError("Enter a group name.");
+      return;
+    }
+
+    if (groupMembers.length === 0) {
+      setError("Add at least one member to create a group.");
+      return;
+    }
+
+    setIsCreatingGroup(true);
+    setError(null);
+
+    try {
+      const chat = await createGroupChat({
+        title: trimmedTitle,
+        memberUserIds: groupMembers.map((member) => member.id),
+      });
+      setChats((current) => [chat, ...current.filter((item) => item.id !== chat.id)]);
+      setSelectedChatId(chat.id);
+      setGroupTitle("");
+      setGroupPhoneSearch("");
+      setGroupMembers([]);
+      setCreatePanelOpen(false);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to create group.");
+    } finally {
+      setIsCreatingGroup(false);
+    }
+  }
+
+  async function handleAddMemberToSelectedGroup(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+    const trimmedPhone = activeGroupMemberPhoneSearch.trim();
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    if (!trimmedPhone) {
+      setError("Enter a phone number to add to this group.");
+      return;
+    }
+
+    setIsManagingGroupMember(true);
+    setError(null);
+
+    try {
+      const foundUser = await searchUserByPhone(trimmedPhone);
+      if (selectedChat.members?.some((member) => member.userId === foundUser.id)) {
+        throw new Error("That user is already in this group.");
+      }
+
+      const updatedChat = await addGroupMembers(selectedChat.id, [foundUser.id]);
+      setChats((current) =>
+        current.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat)),
+      );
+      setActiveGroupMemberPhoneSearch("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to add member.");
+    } finally {
+      setIsManagingGroupMember(false);
+    }
+  }
+
+  async function handleRemoveMemberFromSelectedGroup(userId: string) {
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    setRemovingGroupMemberIds((current) => {
+      const next = new Set(current);
+      next.add(userId);
+      return next;
+    });
+    setError(null);
+
+    try {
+      await removeGroupMember(selectedChat.id, userId);
+      const updatedChat = {
+        ...selectedChat,
+        ...(selectedChat.members
+          ? {
+              members: selectedChat.members.filter(
+                (member) => member.userId !== userId,
+              ),
+            }
+          : {}),
+        ...(selectedChat.memberIds
+          ? {
+              memberIds: selectedChat.memberIds.filter(
+                (memberId) => memberId !== userId,
+              ),
+            }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      setChats((current) =>
+        current.map((chat) => (chat.id === selectedChat.id ? updatedChat : chat)),
+      );
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to remove member.",
+      );
+    } finally {
+      setRemovingGroupMemberIds((current) => {
+        const next = new Set(current);
+        next.delete(userId);
+        return next;
+      });
+    }
+  }
+
+  async function handleUpdateSelectedGroupDetails(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+    const title = activeGroupTitleDraft.trim();
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    if (!title) {
+      setError("Enter a group name.");
+      return;
+    }
+
+    if (title === (selectedChat.title ?? "")) {
+      return;
+    }
+
+    setIsUpdatingGroupDetails(true);
+    setError(null);
+
+    try {
+      const updatedChat = await updateGroupChat(selectedChat.id, { title });
+      setChats((current) =>
+        current.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat)),
+      );
+      setActiveGroupTitleDraft(updatedChat.title ?? "");
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to update group.",
+      );
+    } finally {
+      setIsUpdatingGroupDetails(false);
+    }
+  }
+
+  async function handleUpdateSelectedGroupAvatar(file: File) {
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    setIsUpdatingGroupAvatar(true);
+    setError(null);
+
+    try {
+      const avatar = await uploadGroupAvatar(file);
+      const updatedChat = await updateGroupChat(selectedChat.id, {
+        avatarUrl: avatar.url,
+      });
+      setChats((current) =>
+        current.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat)),
+      );
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to update avatar.",
+      );
+    } finally {
+      setIsUpdatingGroupAvatar(false);
+    }
+  }
+
+  async function handleUpdateMemberRole(
+    userId: string,
+    role: ChatMemberDto["role"],
+  ) {
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    setUpdatingRoleMemberIds((current) => {
+      const next = new Set(current);
+      next.add(userId);
+      return next;
+    });
+    setError(null);
+
+    try {
+      const updatedChat = await updateChatMemberRole(selectedChat.id, userId, role);
+      setChats((current) =>
+        current.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat)),
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to update role.");
+    } finally {
+      setUpdatingRoleMemberIds((current) => {
+        const next = new Set(current);
+        next.delete(userId);
+        return next;
+      });
+    }
+  }
+
+  async function handleLeaveSelectedGroup() {
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+
+    if (!selectedChat || selectedChat.type !== "group" || !user) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Leave ${selectedChat.title ?? "this group"}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setIsLeavingGroup(true);
+    setError(null);
+
+    try {
+      await leaveGroup(selectedChat.id, user.id);
+      const nextChats = chats.filter((chat) => chat.id !== selectedChat.id);
+      setChats(nextChats);
+      setSelectedChatId(nextChats[0]?.id ?? null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to leave group.");
+    } finally {
+      setIsLeavingGroup(false);
+    }
+  }
+
+  async function handleCreateSelectedGroupInvite() {
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    setIsUpdatingInvite(true);
+    setError(null);
+
+    try {
+      const invite = await createChatInvite(selectedChat.id);
+      setActiveGroupInvite(invite);
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to create invite link.",
+      );
+    } finally {
+      setIsUpdatingInvite(false);
+    }
+  }
+
+  async function handleCopySelectedGroupInvite() {
+    if (!activeGroupInviteUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(activeGroupInviteUrl);
+    } catch {
+      setError("Could not copy invite link.");
+    }
+  }
+
+  async function handleRevokeSelectedGroupInvite() {
+    if (!selectedChat || selectedChat.type !== "group") {
+      return;
+    }
+
+    setIsUpdatingInvite(true);
+    setError(null);
+
+    try {
+      await revokeChatInvite(selectedChat.id);
+      setActiveGroupInvite(null);
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to revoke invite link.",
+      );
+    } finally {
+      setIsUpdatingInvite(false);
+    }
+  }
+
+  async function handleJoinByInvite(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const token = parseInviteToken(inviteJoinInput);
+    if (!token) {
+      setError("Paste an invite link or token.");
+      return;
+    }
+
+    setIsJoiningInvite(true);
+    setError(null);
+
+    try {
+      const chat = await joinChatByInvite(token);
+      setChats((current) => [chat, ...current.filter((item) => item.id !== chat.id)]);
+      setSelectedChatId(chat.id);
+      setInviteJoinInput("");
+      setCreatePanelOpen(false);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to join group.");
+    } finally {
+      setIsJoiningInvite(false);
+    }
+  }
+
+  async function runMessageSearch(query: string) {
     if (!selectedChatId) {
       return;
     }
 
-    const trimmedQuery = messageSearchQuery.trim();
+    const trimmedQuery = query.trim();
 
     if (trimmedQuery.length < 2) {
-      setMessageSearchError("Enter at least 2 characters.");
+      setMessageSearchError(trimmedQuery ? "Enter at least 2 characters." : null);
       setMessageSearchResults([]);
       return;
     }
@@ -252,6 +1312,19 @@ export default function HomePage() {
     } finally {
       setMessageSearchLoading(false);
     }
+  }
+
+  async function handleMessageSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runMessageSearch(messageSearchQuery);
+  }
+
+  function clearMessageSearch() {
+    setMessageSearchQuery("");
+    setMessageSearchResults([]);
+    setMessageSearchError(null);
+    setHighlightedMessageId(null);
+    setMessageSearchLoading(false);
   }
 
   useEffect(() => {
@@ -274,7 +1347,6 @@ export default function HomePage() {
 
       const joinAllChats = () => {
         for (const chatId of chatIds) {
-          console.log("[typing] joining chat room for typing:", chatId);
           socket.emit("chat:join", { chatId });
           joinedChatIdsRef.current.add(chatId);
         }
@@ -292,36 +1364,107 @@ export default function HomePage() {
   }, [chats, user?.id]);
 
   useEffect(() => {
-    return () => {
-      const joinedChatIds = Array.from(joinedChatIdsRef.current);
-
-      if (joinedChatIds.length === 0) {
-        return;
-      }
-
-      void getSocket().then((socket) => {
-        joinedChatIds.forEach((chatId) => {
-          socket.emit("chat:leave", { chatId });
-          clearTypingChat(chatId);
-        });
-        joinedChatIdsRef.current.clear();
-      });
-    };
-  }, [clearTypingChat]);
-
-  useEffect(() => {
     setMessageSearchQuery("");
     setMessageSearchResults([]);
     setMessageSearchError(null);
     setHighlightedMessageId(null);
-  }, [selectedChatId]);
+    setActiveGroupMemberPhoneSearch("");
+    const selectedChat = chats.find((chat) => chat.id === selectedChatId);
+    setActiveGroupTitleDraft(
+      selectedChat?.type === "group" ? (selectedChat.title ?? "") : "",
+    );
+  }, [chats, selectedChatId]);
+
+  useEffect(() => {
+    if (!selectedChat || !canManageSelectedGroupInvite) {
+      setActiveGroupInvite(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingInvite(true);
+
+    fetchActiveChatInvite(selectedChat.id)
+      .then((invite) => {
+        if (!cancelled) {
+          setActiveGroupInvite(invite);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setActiveGroupInvite(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingInvite(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageSelectedGroupInvite, selectedChat]);
+
+  useEffect(() => {
+    const trimmedQuery = messageSearchQuery.trim();
+
+    setHighlightedMessageId(null);
+
+    if (!selectedChatId || !trimmedQuery) {
+      setMessageSearchResults([]);
+      setMessageSearchError(null);
+      setMessageSearchLoading(false);
+      return;
+    }
+
+    if (trimmedQuery.length < 2) {
+      setMessageSearchResults([]);
+      setMessageSearchError("Enter at least 2 characters.");
+      setMessageSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      setMessageSearchLoading(true);
+      setMessageSearchError(null);
+
+      searchMessages(selectedChatId, trimmedQuery)
+        .then((result) => {
+          if (!cancelled) {
+            setMessageSearchResults(result.messages);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setMessageSearchError(
+              error instanceof Error
+                ? error.message
+                : "Failed to search messages.",
+            );
+            setMessageSearchResults([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setMessageSearchLoading(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [messageSearchQuery, selectedChatId]);
 
   return (
     <ProtectedRoute>
-      <main className="h-screen overflow-hidden bg-[#0f1013] p-0 text-zinc-50 md:p-6">
-        <div className="mx-auto flex h-full max-w-[1440px] flex-col overflow-hidden border border-white/10 bg-[#111216] shadow-2xl shadow-black/40 md:rounded-3xl lg:flex-row">
-        <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-white/10 bg-[#17191f] lg:w-[380px] lg:border-b-0 lg:border-r">
-          <div className="space-y-5 p-5">
+      <main className="h-[100dvh] w-full overflow-hidden bg-[#0f1013] p-2 text-zinc-50 md:p-3">
+        <div className="mx-auto flex h-full w-full max-w-[1500px] overflow-hidden border border-white/10 bg-[#111216] shadow-2xl shadow-black/40 rounded-2xl lg:flex-row">
+        <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-white/10 bg-[#17191f] lg:w-[clamp(280px,26vw,380px)] lg:border-b-0 lg:border-r">
+          <div className="shrink-0 space-y-3 border-b border-white/10 p-4">
             <div className="flex items-center justify-between gap-3">
               <Link href="/profile" className="flex min-w-0 items-center gap-3">
                 <div className="relative">
@@ -357,61 +1500,215 @@ export default function HomePage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateDirectChat} className="space-y-3">
-              <label htmlFor="other-user-id" className="sr-only">
-                Start direct chat by phone
-              </label>
-              <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-[#20232b] px-4 py-3 text-slate-400 shadow-inner shadow-black/20 focus-within:border-emerald-400/50">
+            <div className="space-y-3">
+              <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/8 bg-[#20232b] px-4 py-2.5 text-slate-400 shadow-inner shadow-black/20 focus-within:border-emerald-400/50">
                 <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="11" cy="11" r="7" />
                   <path d="m20 20-3.5-3.5" />
                 </svg>
                 <input
-                  id="other-user-id"
-                  value={phoneSearch}
-                  onChange={(event) => setPhoneSearch(event.target.value)}
+                  value={chatSearchQuery}
+                  onChange={(event) => setChatSearchQuery(event.target.value)}
                   placeholder="Search conversations..."
                   className="min-w-0 flex-1 bg-transparent text-base text-slate-100 outline-none placeholder:text-slate-400"
                 />
                 <button
-                  type="submit"
-                  disabled={isCreating}
-                  className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-[#07110d] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  onClick={() => setCreatePanelOpen((current) => !current)}
+                  className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-[#07110d] transition hover:bg-emerald-400"
                 >
-                  {isCreating ? "..." : "New"}
+                  New
                 </button>
               </div>
-            </form>
 
-            <div className="flex items-center gap-3 text-sm font-semibold text-slate-400">
-              <button type="button" className="flex items-center gap-2 rounded-2xl bg-emerald-500/15 px-4 py-3 text-emerald-400">
-                <span className="h-4 w-4 rounded border border-emerald-400" />
-                All
-              </button>
-              <button type="button" className="flex items-center gap-2 rounded-2xl px-4 py-3 transition hover:bg-white/[0.04] hover:text-slate-100">
-                <span className="text-lg leading-none">::</span>
-                Groups
-              </button>
-              <button type="button" className="flex items-center gap-2 rounded-2xl px-4 py-3 transition hover:bg-white/[0.04] hover:text-slate-100">
-                <span className="h-4 w-4 rounded-full border border-current" />
-                Direct
-              </button>
+              {createPanelOpen ? (
+                <div className="rounded-2xl border border-white/8 bg-[#20232b] p-3 shadow-inner shadow-black/20">
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["direct", "group", "invite"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        onClick={() => setCreatePanelTab(tab)}
+                        className={`h-9 rounded-xl text-xs font-bold capitalize transition ${
+                          createPanelTab === tab
+                            ? "bg-emerald-500 text-[#07110d]"
+                            : "bg-white/[0.06] text-slate-300 hover:bg-white/[0.1]"
+                        }`}
+                      >
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
+
+                  {createPanelTab === "direct" ? (
+                    <form onSubmit={handleCreateDirectChat} className="mt-3 flex gap-2">
+                      <label htmlFor="other-user-id" className="sr-only">
+                        Start direct chat by phone
+                      </label>
+                      <input
+                        id="other-user-id"
+                        value={phoneSearch}
+                        onChange={(event) => setPhoneSearch(event.target.value)}
+                        placeholder="Phone number"
+                        className="h-10 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isCreating}
+                        className="h-10 rounded-xl bg-emerald-500 px-4 text-xs font-bold text-[#07110d] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isCreating ? "..." : "Create"}
+                      </button>
+                    </form>
+                  ) : null}
+
+                  {createPanelTab === "invite" ? (
+                    <form onSubmit={handleJoinByInvite} className="mt-3 flex gap-2">
+                      <label htmlFor="invite-link" className="sr-only">
+                        Join group by invite
+                      </label>
+                      <input
+                        id="invite-link"
+                        value={inviteJoinInput}
+                        onChange={(event) => setInviteJoinInput(event.target.value)}
+                        placeholder="Invite link or token"
+                        className="h-10 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isJoiningInvite}
+                        className="h-10 rounded-xl bg-emerald-500 px-4 text-xs font-bold text-[#07110d] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isJoiningInvite ? "Joining" : "Join"}
+                      </button>
+                    </form>
+                  ) : null}
+
+                  {createPanelTab === "group" ? (
+                    <div className="mt-3 space-y-3">
+                      <form onSubmit={handleCreateGroupChat} className="space-y-3">
+                        <label htmlFor="group-title" className="sr-only">
+                          Group name
+                        </label>
+                        <input
+                          id="group-title"
+                          value={groupTitle}
+                          onChange={(event) => setGroupTitle(event.target.value)}
+                          placeholder="Group name"
+                          className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                        />
+
+                        {groupMembers.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {groupMembers.map((member) => (
+                              <button
+                                key={member.id}
+                                type="button"
+                                onClick={() =>
+                                  setGroupMembers((current) =>
+                                    current.filter((item) => item.id !== member.id),
+                                  )
+                                }
+                                className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-red-300/30 hover:bg-red-500/10 hover:text-red-100"
+                                title="Remove member"
+                              >
+                                <span className="max-w-[180px] truncate">
+                                  {member.displayName}
+                                </span>
+                                <span aria-hidden="true" className="text-slate-500">
+                                  x
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <button
+                          type="submit"
+                          disabled={isCreatingGroup}
+                          className="h-10 w-full rounded-xl bg-emerald-500 text-sm font-bold text-[#07110d] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isCreatingGroup ? "Creating..." : "Create group"}
+                        </button>
+                      </form>
+
+                      <form onSubmit={handleAddGroupMember} className="flex gap-2">
+                        <label htmlFor="group-member-phone" className="sr-only">
+                          Member phone
+                        </label>
+                        <input
+                          id="group-member-phone"
+                          value={groupPhoneSearch}
+                          onChange={(event) => setGroupPhoneSearch(event.target.value)}
+                          placeholder="Add member phone"
+                          className="h-10 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isAddingGroupMember}
+                          className="h-10 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isAddingGroupMember ? "..." : "Add"}
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-400">
+              {([
+                ["all", "All"],
+                ["group", "Groups"],
+                ["direct", "Direct"],
+              ] as const).map(([filter, label]) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setChatTypeFilter(filter)}
+                  className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl px-3 py-2.5 transition ${
+                    chatTypeFilter === filter
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : "hover:bg-white/[0.04] hover:text-slate-100"
+                  }`}
+                >
+                  <span
+                    className={
+                      filter === "direct"
+                        ? "h-4 w-4 rounded-full border border-current"
+                        : filter === "group"
+                          ? "text-lg leading-none"
+                          : "h-4 w-4 rounded border border-current"
+                    }
+                  >
+                    {filter === "group" ? "::" : ""}
+                  </span>
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto bg-[#17191f]">
             {isLoading ? (
               <p className="px-5 py-4 text-sm text-slate-400">Loading chats...</p>
-            ) : chats.length === 0 ? (
-              <p className="px-5 py-4 text-sm text-slate-400">No chats yet</p>
+            ) : filteredChats.length === 0 ? (
+              <p className="px-5 py-4 text-sm text-slate-400">
+                {chatSearchQuery.trim() ? "No conversations found" : "No chats yet"}
+              </p>
             ) : (
               <div className="space-y-1 pb-3">
-                {chats.map((chat) => {
+                {filteredChats.map((chat) => {
                   const isSelected = chat.id === selectedChatId;
                   const otherMembers = getOtherMembers(chat, user?.id);
                   const otherUser = otherMembers[0]?.user;
                   const title = getChatTitle(chat, user?.id);
                   const subtitle = getChatSubtitle(chat, user?.id);
+                  const preview =
+                    chat.lastMessagePreview ?? subtitle;
+                  const unreadCount = chat.unreadCount ?? 0;
+                  const previewTime = chat.lastMessageAt ?? chat.updatedAt;
                   const otherMemberIds = otherMembers.map((member) => member.userId);
                   const hasOnlineMember = otherMemberIds.some((id) =>
                     isOnline(id),
@@ -438,7 +1735,14 @@ export default function HomePage() {
                     >
                       <div className="flex items-center gap-3">
                         <div className="relative">
-                          <Avatar user={otherUser} label={title} size="md" />
+                          <Avatar
+                            user={chat.type === "group" ? undefined : otherUser}
+                            label={title}
+                            size="md"
+                            imageUrl={
+                              chat.type === "group" ? chat.avatarUrl : undefined
+                            }
+                          />
                           <span className="absolute bottom-0 right-0 rounded-full bg-[#17191f] p-1">
                             <PresenceDot online={hasOnlineMember} size="md" />
                           </span>
@@ -453,19 +1757,23 @@ export default function HomePage() {
                               isTypingInChat ? "font-semibold text-emerald-400" : "text-slate-400"
                             }`}
                           >
-                            {isTypingInChat ? "Typing..." : subtitle}
+                            {isTypingInChat ? "Typing..." : preview}
                           </span>
                         </div>
 
                         <div className="flex shrink-0 flex-col items-end gap-2">
                           <span className="text-xs text-slate-400">
-                            {new Date(chat.updatedAt).toLocaleTimeString([], {
+                            {new Date(previewTime).toLocaleTimeString([], {
                               hour: "2-digit",
                               minute: "2-digit",
                             })}
                           </span>
-                          {hasOnlineMember ? (
+                          {unreadCount > 0 ? (
                             <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-bold text-[#07110d]">
+                              {unreadCount > 9 ? "9+" : unreadCount}
+                            </span>
+                          ) : hasOnlineMember ? (
+                            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-300">
                               On
                             </span>
                           ) : null}
@@ -482,7 +1790,7 @@ export default function HomePage() {
             )}
           </div>
 
-          <div className="flex items-center justify-between border-t border-white/10 px-5 py-4 text-sm text-slate-400">
+          <div className="flex shrink-0 items-center justify-between border-t border-white/10 px-5 py-3 text-sm text-slate-400">
             <span className="flex items-center gap-2">
               <PresenceDot online size="md" />
               Online
@@ -494,130 +1802,71 @@ export default function HomePage() {
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#111216]">
-          <header className="border-b border-white/10 bg-[#15171c] px-5 py-4">
-            {selectedChat ? (
-              (() => {
-                const otherMembers = getOtherMembers(selectedChat, user?.id);
-                const otherUser = otherMembers[0]?.user;
-                const title = getChatTitle(selectedChat, user?.id);
-                const presenceStatus = getChatPresenceStatus(
-                  otherMembers,
-                  getPresence,
-                );
-                const hasOnlineMember = otherMembers.some((member) =>
-                  isOnline(member.userId),
-                );
-
-                return (
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex min-w-0 items-center gap-4">
-                      <div className="relative">
-                        <Avatar user={otherUser} label={title} size="md" />
-                        <span className="absolute bottom-0 right-0 rounded-full bg-[#15171c] p-1">
-                          <PresenceDot online={hasOnlineMember} size="md" />
-                        </span>
-                      </div>
-                      <div className="min-w-0">
-                        <h1 className="truncate text-xl font-bold text-white">
-                          {title}
-                        </h1>
-                        <p className="mt-1 flex items-center gap-2 truncate text-sm text-slate-400">
-                          {hasOnlineMember ? <span className="h-2 w-2 rounded-full bg-emerald-400" /> : null}
-                          {presenceStatus}
-                        </p>
-                      </div>
-                    </div>
-
-                    <form
-                      onSubmit={handleMessageSearch}
-                      className="flex min-w-0 items-center gap-2 xl:w-[420px]"
-                    >
-                      <input
-                        value={messageSearchQuery}
-                        onChange={(event) =>
-                          setMessageSearchQuery(event.target.value)
-                        }
-                        placeholder="Search messages"
-                        className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#20232b] px-4 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
-                      />
-                      <button
-                        type="submit"
-                        disabled={messageSearchLoading}
-                        aria-label="Search messages"
-                        title="Search messages"
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                          <circle cx="11" cy="11" r="7" />
-                          <path d="m20 20-3.5-3.5" />
-                        </svg>
-                      </button>
-                    </form>
-
-                    {(messageSearchError || messageSearchResults.length > 0) && (
-                      <div className="max-h-40 overflow-y-auto rounded-2xl border border-white/10 bg-[#20232b] xl:absolute xl:right-5 xl:top-20 xl:w-[420px]">
-                        {messageSearchError ? (
-                          <p className="px-4 py-3 text-xs text-red-200">
-                            {messageSearchError}
-                          </p>
-                        ) : (
-                          messageSearchResults.map((message) => (
-                            <button
-                              key={message.id}
-                              type="button"
-                              onClick={() => setHighlightedMessageId(message.id)}
-                              className="block w-full border-b border-white/5 px-4 py-3 text-left last:border-0 hover:bg-white/[0.05]"
-                            >
-                              <span className="block truncate text-sm text-white/80">
-                                {message.text ?? "Message"}
-                              </span>
-                              <span className="mt-1 block text-[11px] text-white/35">
-                                {new Date(message.createdAt).toLocaleString()}
-                              </span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()
-            ) : (
-              <>
-                <h1 className="truncate text-xl font-bold">
-                  Select a conversation
-                </h1>
-                <p className="mt-1 truncate text-sm text-slate-400">
-                  Create or choose a chat
-                </p>
-              </>
-            )}
-          </header>
-
           {error && (
             <div className="mx-5 mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
               {error}
             </div>
           )}
 
-          {selectedChatId && user ? (
-            <MessageThread
-              chatId={selectedChatId}
-              currentUserId={user.id}
+          {selectedChat && user ? (
+            <ActiveChatPane
               chat={selectedChat}
+              user={user}
+              getPresence={getPresence}
+              isOnline={isOnline}
+              messageSearchQuery={messageSearchQuery}
+              messageSearchResults={messageSearchResults}
+              messageSearchLoading={messageSearchLoading}
+              messageSearchError={messageSearchError}
               highlightedMessageId={highlightedMessageId}
+              groupTitleDraft={activeGroupTitleDraft}
+              groupMemberPhoneSearch={activeGroupMemberPhoneSearch}
+              groupInvite={activeGroupInvite}
+              groupInviteUrl={activeGroupInviteUrl}
+              groupAvatarPending={isUpdatingGroupAvatar}
+              groupDetailsPending={isUpdatingGroupDetails}
+              groupMemberActionPending={isManagingGroupMember}
+              leaveGroupPending={isLeavingGroup}
+              groupInvitePending={isUpdatingInvite || isLoadingInvite}
+              removingGroupMemberIds={removingGroupMemberIds}
+              updatingRoleMemberIds={updatingRoleMemberIds}
+              onMessageSearchChange={setMessageSearchQuery}
+              onMessageSearch={handleMessageSearch}
+              onClearMessageSearch={clearMessageSearch}
+              onHighlightMessage={setHighlightedMessageId}
+              onGroupTitleDraftChange={setActiveGroupTitleDraft}
+              onGroupAvatarSelected={handleUpdateSelectedGroupAvatar}
+              onSaveGroupDetails={handleUpdateSelectedGroupDetails}
+              onCreateGroupInvite={handleCreateSelectedGroupInvite}
+              onCopyGroupInvite={handleCopySelectedGroupInvite}
+              onRevokeGroupInvite={handleRevokeSelectedGroupInvite}
+              onGroupMemberPhoneSearchChange={setActiveGroupMemberPhoneSearch}
+              onAddGroupMember={handleAddMemberToSelectedGroup}
+              onRemoveGroupMember={handleRemoveMemberFromSelectedGroup}
+              onUpdateGroupMemberRole={handleUpdateMemberRole}
+              onLeaveGroup={handleLeaveSelectedGroup}
             />
           ) : (
-            <div className="flex flex-1 items-center justify-center p-6">
-              <div className="max-w-md text-center">
-                <h2 className="text-xl font-bold">Ready for chats</h2>
-
-                <p className="mt-2 text-sm leading-6 text-slate-400">
-                  Create a direct chat from the sidebar using another signed-in
-                  user&apos;s phone number.
+            <>
+              <header className="border-b border-white/10 bg-[#15171c] px-5 py-4">
+                <h1 className="truncate text-xl font-bold">
+                  Select a conversation
+                </h1>
+                <p className="mt-1 truncate text-sm text-slate-400">
+                  Create or choose a chat
                 </p>
+              </header>
+              <div className="flex flex-1 items-center justify-center p-6">
+                <div className="max-w-md text-center">
+                  <h2 className="text-xl font-bold">Ready for chats</h2>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    Create a direct chat from the sidebar using another signed-in
+                    user&apos;s phone number.
+                  </p>
+                </div>
               </div>
-            </div>
+            </>
           )}
         </section>
         </div>

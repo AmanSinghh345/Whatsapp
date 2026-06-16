@@ -40,7 +40,10 @@ function getResourceType(file: File): CloudinaryAssetResourceType {
   return "raw";
 }
 
-export async function uploadChatMedia(file: File): Promise<CloudinaryAssetDto> {
+async function uploadMedia(
+  file: File,
+  folder = "chat-uploads",
+): Promise<CloudinaryAssetDto> {
   const resourceType = getResourceType(file);
   const headers = await getAuthHeaders();
 
@@ -48,7 +51,7 @@ export async function uploadChatMedia(file: File): Promise<CloudinaryAssetDto> {
     method: "POST",
     headers,
     body: JSON.stringify({
-      folder: "chat-uploads",
+      folder,
       resourceType,
     }),
   });
@@ -98,4 +101,16 @@ export async function uploadChatMedia(file: File): Promise<CloudinaryAssetDto> {
 
   const body = await confirmRes.json();
   return body.data;
+}
+
+export async function uploadChatMedia(file: File): Promise<CloudinaryAssetDto> {
+  return uploadMedia(file, "chat-uploads");
+}
+
+export async function uploadGroupAvatar(file: File): Promise<CloudinaryAssetDto> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Group avatar must be an image.");
+  }
+
+  return uploadMedia(file, "group-avatars");
 }
