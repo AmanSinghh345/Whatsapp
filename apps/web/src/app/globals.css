@@ -38,3 +38,59 @@ body {
 *::-webkit-scrollbar-thumb:hover {
   background-color: rgba(203, 213, 225, 0.7);
 }
+
+@keyframes login-word-shift {
+  0%,
+  28% {
+    transform: translateY(0%);
+  }
+  33%,
+  61% {
+    transform: translateY(-33.333%);
+  }
+  66%,
+  94% {
+    transform: translateY(-66.666%);
+  }
+  100% {
+    transform: translateY(0%);
+  }
+}
+
+@keyframes login-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0);
+  }
+}
+
+@keyframes login-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.04);
+  }
+}
+
+.login-word-track {
+  animation: login-word-shift 8s ease-in-out infinite;
+}
+
+.login-float {
+  animation: login-float 5.5s ease-in-out infinite;
+}
+
+.login-float-slow {
+  animation: login-float 7s ease-in-out infinite;
+}
+
+.login-glow {
+  animation: login-glow 6s ease-in-out infinite;
+}
