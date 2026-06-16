@@ -4,15 +4,22 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from "@nestjs/common";
+import { randomBytes } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SocketGateway } from "../realtime/socket.gateway.js";
+import { SocketEvents } from "@chat/shared";
 import type {
   CreateDirectChatRequestDto,
   CreateGroupChatRequestDto,
   UpdateGroupChatRequestDto,
   UpdateChatMemberRoleRequestDto,
   ChatDto,
+  ChatInviteDto,
   ChatMemberDto,
+  MessageDto,
 } from "@chat/shared";
 import type { Id } from "@chat/shared";
 
@@ -20,7 +27,11 @@ import type { Id } from "@chat/shared";
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => SocketGateway))
+    private readonly socketGateway: SocketGateway,
+  ) {}
 
   /**
    * Create a direct chat between two users
@@ -127,6 +138,14 @@ export class ChatService {
 
     this.logger.log(
       `Created group chat ${chat.id}: "${title}" with ${allMemberIds.length} members`,
+    );
+    await this.createSystemMessage(
+      chat.id,
+      currentUserId,
+      `${this.getMemberName(
+        chat.members.find((member) => member.userId === currentUserId),
+        "Someone",
+      )} created the group`,
     );
     return this.toChatDto(chat);
   }
@@ -282,6 +301,16 @@ export class ChatService {
       });
 
       this.logger.log(`Added ${newMemberIds.length} members to chat ${chatId}`);
+      const addedNames = newMemberIds.map((userId) =>
+        this.getUserName(users.find((user) => user.id === userId), "someone"),
+      );
+      await this.createSystemMessage(
+        chatId,
+        currentUserId,
+        `${this.getMemberName(userMembership, "Someone")} added ${this.formatNames(
+          addedNames,
+        )}`,
+      );
     }
 
     const updated = await this.prisma.chat.findUnique({
@@ -344,6 +373,23 @@ export class ChatService {
       include: { members: { include: { user: true } } },
     });
 
+    const actorName = this.getMemberName(userMembership, "Someone");
+    if (data.title && data.title !== chat.title) {
+      await this.createSystemMessage(
+        chatId,
+        currentUserId,
+        `${actorName} changed the group name to ${data.title}`,
+      );
+    }
+
+    if (data.avatarUrl !== undefined && data.avatarUrl !== chat.avatarUrl) {
+      await this.createSystemMessage(
+        chatId,
+        currentUserId,
+        `${actorName} changed the group icon`,
+      );
+    }
+
     this.logger.log(`Updated group chat ${chatId}`);
     return this.toChatDto(updated);
   }
@@ -401,6 +447,16 @@ export class ChatService {
       data: { role: request.role },
     });
 
+    await this.createSystemMessage(
+      chatId,
+      currentUserId,
+      `${this.getMemberName(currentUserMembership, "Someone")} ${
+        request.role === "admin" ? "promoted" : "demoted"
+      } ${this.getMemberName(targetMembership, "someone")}${
+        request.role === "admin" ? " to admin" : ""
+      }`,
+    );
+
     const updated = await this.prisma.chat.findUnique({
       where: { id: chatId },
       include: { members: { include: { user: true } } },
@@ -409,6 +465,124 @@ export class ChatService {
     this.logger.log(
       `Updated role in chat ${chatId}: user=${memberUserId} role=${request.role}`,
     );
+    return this.toChatDto(updated!);
+  }
+
+  async getActiveInvite(
+    chatId: string,
+    currentUserId: string,
+  ): Promise<ChatInviteDto | null> {
+    const chat = await this.getAdminGroupChat(chatId, currentUserId);
+    const invite = await this.prisma.chatInvite.findFirst({
+      where: { chatId: chat.id, revokedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return invite ? this.toChatInviteDto(invite) : null;
+  }
+
+  async createInvite(
+    chatId: string,
+    currentUserId: string,
+  ): Promise<ChatInviteDto> {
+    const chat = await this.getAdminGroupChat(chatId, currentUserId);
+
+    await this.prisma.chatInvite.updateMany({
+      where: { chatId: chat.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    const invite = await this.prisma.chatInvite.create({
+      data: {
+        chatId: chat.id,
+        createdById: currentUserId,
+        token: this.createInviteToken(),
+      },
+    });
+
+    await this.createSystemMessage(
+      chat.id,
+      currentUserId,
+      `${this.getMemberName(
+        chat.members.find((member) => member.userId === currentUserId),
+        "Someone",
+      )} created a group invite link`,
+    );
+
+    return this.toChatInviteDto(invite);
+  }
+
+  async revokeInvite(chatId: string, currentUserId: string): Promise<void> {
+    const chat = await this.getAdminGroupChat(chatId, currentUserId);
+    const result = await this.prisma.chatInvite.updateMany({
+      where: { chatId: chat.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    if (result.count > 0) {
+      await this.createSystemMessage(
+        chat.id,
+        currentUserId,
+        `${this.getMemberName(
+          chat.members.find((member) => member.userId === currentUserId),
+          "Someone",
+        )} revoked the group invite link`,
+      );
+    }
+  }
+
+  async joinByInvite(token: string, currentUserId: string): Promise<ChatDto> {
+    if (!token || token.trim().length < 16) {
+      throw new BadRequestException("Invite link is invalid");
+    }
+
+    const invite = await this.prisma.chatInvite.findUnique({
+      where: { token },
+      include: {
+        chat: {
+          include: { members: { include: { user: true } } },
+        },
+      },
+    });
+
+    if (!invite || invite.revokedAt || invite.chat.type !== "group") {
+      throw new NotFoundException("Invite link is invalid or expired");
+    }
+
+    const existingMember = invite.chat.members.find(
+      (member) => member.userId === currentUserId,
+    );
+    if (existingMember) {
+      return this.toChatDto(invite.chat);
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUserId },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    await this.prisma.chatMember.create({
+      data: {
+        chatId: invite.chatId,
+        userId: currentUserId,
+        role: "member",
+      },
+    });
+
+    await this.createSystemMessage(
+      invite.chatId,
+      currentUserId,
+      `${this.getUserName(user, "Someone")} joined using an invite link`,
+    );
+
+    const updated = await this.prisma.chat.findUnique({
+      where: { id: invite.chatId },
+      include: { members: { include: { user: true } } },
+    });
+
     return this.toChatDto(updated!);
   }
 
@@ -461,6 +635,18 @@ export class ChatService {
       throw new BadRequestException("Group must have at least one admin");
     }
 
+    const isLeaving = currentUserId === memberUserIdToRemove;
+    await this.createSystemMessage(
+      chatId,
+      currentUserId,
+      isLeaving
+        ? `${this.getMemberName(currentUserMembership, "Someone")} left`
+        : `${this.getMemberName(
+            currentUserMembership,
+            "Someone",
+          )} removed ${this.getMemberName(targetMembership, "someone")}`,
+    );
+
     await this.prisma.chatMember.deleteMany({
       where: {
         chatId,
@@ -511,6 +697,172 @@ export class ChatService {
       },
       include: { members: { include: { user: true } } },
     });
+  }
+
+  private async getAdminGroupChat(chatId: string, userId: string) {
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      include: { members: { include: { user: true } } },
+    });
+
+    if (!chat) {
+      throw new NotFoundException(`Chat ${chatId} not found`);
+    }
+
+    if (chat.type !== "group") {
+      throw new BadRequestException("Invite links are only available for groups");
+    }
+
+    const membership = chat.members.find((member) => member.userId === userId);
+    if (!membership || membership.role !== "admin") {
+      throw new ForbiddenException("Only admins can manage invite links");
+    }
+
+    return chat;
+  }
+
+  private createInviteToken(): string {
+    return randomBytes(24).toString("base64url");
+  }
+
+  private async createSystemMessage(
+    chatId: string,
+    actorUserId: string,
+    text: string,
+  ): Promise<MessageDto> {
+    const message = await this.prisma.message.create({
+      data: {
+        chatId,
+        senderId: actorUserId,
+        clientMessageId: `system:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+        contentType: "system",
+        textContent: text,
+      },
+      include: { attachments: true, receipts: true, reactions: true },
+    });
+
+    await this.prisma.chat.update({
+      where: { id: chatId },
+      data: { updatedAt: message.createdAt },
+    });
+
+    const chatMembers = await this.prisma.chatMember.findMany({
+      where: { chatId, userId: { not: actorUserId } },
+      select: { userId: true },
+    });
+
+    if (chatMembers.length > 0) {
+      await this.prisma.messageReceipt.createMany({
+        data: chatMembers.map((member) => ({
+          messageId: message.id,
+          recipientId: member.userId,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    const messageWithReceipts = await this.prisma.message.findUnique({
+      where: { id: message.id },
+      include: { attachments: true, receipts: true, reactions: true },
+    });
+    const dto = this.toSystemMessageDto(messageWithReceipts ?? message);
+
+    this.socketGateway.broadcastMessageToChat(
+      chatId,
+      SocketEvents.messageNew,
+      dto,
+    );
+
+    return dto;
+  }
+
+  private toChatInviteDto(invite: {
+    id: string;
+    chatId: string;
+    token: string;
+    createdById: string;
+    revokedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): ChatInviteDto {
+    return {
+      id: invite.id,
+      chatId: invite.chatId,
+      token: invite.token,
+      createdById: invite.createdById,
+      ...(invite.revokedAt ? { revokedAt: invite.revokedAt.toISOString() } : {}),
+      createdAt: invite.createdAt.toISOString(),
+      updatedAt: invite.updatedAt.toISOString(),
+    };
+  }
+
+  private getMemberName(
+    member:
+      | {
+          userId: string;
+          user?: {
+            displayName?: string | null;
+            phoneE164?: string | null;
+            email?: string | null;
+          } | null;
+        }
+      | undefined,
+    fallback = "Someone",
+  ): string {
+    return (
+      member?.user?.displayName ??
+      member?.user?.phoneE164 ??
+      member?.user?.email ??
+      fallback
+    );
+  }
+
+  private getUserName(
+    user:
+      | {
+          displayName?: string | null;
+          phoneE164?: string | null;
+          email?: string | null;
+        }
+      | undefined,
+    fallback = "Someone",
+  ): string {
+    return user?.displayName ?? user?.phoneE164 ?? user?.email ?? fallback;
+  }
+
+  private formatNames(names: string[]): string {
+    if (names.length <= 1) {
+      return names[0] ?? "someone";
+    }
+
+    if (names.length === 2) {
+      return `${names[0]} and ${names[1]}`;
+    }
+
+    return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+  }
+
+  private toSystemMessageDto(message: any): MessageDto {
+    return {
+      id: message.id,
+      chatId: message.chatId,
+      senderId: message.senderId,
+      clientMessageId: message.clientMessageId,
+      contentType: "system",
+      text: message.textContent,
+      attachments: [],
+      receiptStatus: this.getReceiptStatus(message.receipts ?? []),
+      receipts: message.receipts?.map((receipt: any) => ({
+        recipientId: receipt.recipientId,
+        ...(receipt.deliveredAt
+          ? { deliveredAt: receipt.deliveredAt.toISOString() }
+          : {}),
+        ...(receipt.seenAt ? { seenAt: receipt.seenAt.toISOString() } : {}),
+      })),
+      reactions: [],
+      createdAt: message.createdAt.toISOString(),
+      updatedAt: message.updatedAt.toISOString(),
+    };
   }
 
   /**
@@ -584,6 +936,24 @@ export class ChatService {
     }
 
     return message.textContent ?? "Message";
+  }
+
+  private getReceiptStatus(receipts: any[]): "sent" | "delivered" | "seen" {
+    if (
+      receipts.length > 0 &&
+      receipts.every((receipt) => Boolean(receipt.seenAt))
+    ) {
+      return "seen";
+    }
+
+    if (
+      receipts.length > 0 &&
+      receipts.every((receipt) => Boolean(receipt.deliveredAt || receipt.seenAt))
+    ) {
+      return "delivered";
+    }
+
+    return "sent";
   }
 
   /**

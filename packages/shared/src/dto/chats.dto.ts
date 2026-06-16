@@ -44,3 +44,22 @@ export type UpdateGroupChatRequestDto = {
 export type UpdateChatMemberRoleRequestDto = {
   role: ChatMemberRole;
 };
+
+export type ChatInviteDto = {
+  id: Id;
+  chatId: Id;
+  token: string;
+  inviteUrl?: string;
+  createdById: Id;
+  revokedAt?: ISODateString;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+};
+
+export type CreateChatInviteResponseDto = {
+  invite: ChatInviteDto;
+};
+
+export type JoinChatByInviteResponseDto = {
+  chat: ChatDto;
+};

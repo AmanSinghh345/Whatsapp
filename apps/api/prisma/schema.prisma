@@ -46,6 +46,7 @@ model User {
   sentMessages           Message[]      @relation("MessageSender")
   receivedMessageReceipts MessageReceipt[] @relation("ReceiptRecipient")
   messageReactions       MessageReaction[]
+  createdChatInvites     ChatInvite[]
   initiatedCalls         CallSession[]  @relation("CallInitiator")
   receivedCalls          CallSession[]  @relation("CallReceiver")
 }
@@ -61,8 +62,25 @@ model Chat {
   members      ChatMember[]
   messages     Message[]
   callSessions CallSession[]
+  invites      ChatInvite[]
 
   @@index([type, createdAt(sort: Desc), id(sort: Desc)])
+}
+
+model ChatInvite {
+  id          String    @id @default(uuid()) @db.Uuid
+  chatId      String    @db.Uuid
+  token       String    @unique
+  createdById String    @db.Uuid
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  chat      Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([chatId, revokedAt, createdAt(sort: Desc)])
+  @@index([createdById, createdAt(sort: Desc)])
 }
 
 model ChatMember {

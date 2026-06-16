@@ -1,5 +1,6 @@
 import type {
   ChatDto,
+  ChatInviteDto,
   ChatMemberRole,
   CreateDirectChatRequestDto,
   CreateGroupChatRequestDto,
@@ -16,6 +17,10 @@ type ChatsResponse = {
 
 type ChatResponse = {
   data: ChatDto;
+};
+
+type ChatInviteResponse = {
+  data: ChatInviteDto | null;
 };
 
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -160,6 +165,65 @@ export async function updateChatMemberRole(
 
   if (!response.ok) {
     throw new Error(`Failed to update member role: ${response.status}`);
+  }
+
+  const result = (await response.json()) as ChatResponse;
+  return result.data;
+}
+
+export async function fetchActiveChatInvite(
+  chatId: string,
+): Promise<ChatInviteDto | null> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats/${chatId}/invite`, {
+    headers,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load invite link: ${response.status}`);
+  }
+
+  const result = (await response.json()) as ChatInviteResponse;
+  return result.data;
+}
+
+export async function createChatInvite(chatId: string): Promise<ChatInviteDto> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats/${chatId}/invite`, {
+    method: "POST",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create invite link: ${response.status}`);
+  }
+
+  const result = (await response.json()) as { data: ChatInviteDto };
+  return result.data;
+}
+
+export async function revokeChatInvite(chatId: string): Promise<void> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats/${chatId}/invite`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to revoke invite link: ${response.status}`);
+  }
+}
+
+export async function joinChatByInvite(token: string): Promise<ChatDto> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/chats/invites/${token}/join`, {
+    method: "POST",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to join group: ${response.status}`);
   }
 
   const result = (await response.json()) as ChatResponse;

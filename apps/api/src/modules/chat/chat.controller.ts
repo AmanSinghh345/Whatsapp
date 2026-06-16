@@ -18,6 +18,7 @@ import { GetUser } from "../auth/get-user.decorator.js";
 import { ChatService } from "./chat.service.js";
 import type {
   ChatDto,
+  ChatInviteDto,
   CreateDirectChatRequestDto,
   CreateGroupChatRequestDto,
   UpdateGroupChatRequestDto,
@@ -91,6 +92,22 @@ export class ChatController {
   }
 
   /**
+   * Join group by invite token
+   * POST /api/chats/invites/:token/join
+   */
+  @Post("invites/:token/join")
+  async joinByInvite(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("token") token: string,
+  ): Promise<{ data: ChatDto }> {
+    const chat = await this.chatService.joinByInvite(
+      token,
+      user.id ?? user.firebaseUid,
+    );
+    return { data: chat };
+  }
+
+  /**
    * Get single chat by ID
    * GET /api/chats/:chatId
    */
@@ -117,6 +134,51 @@ export class ChatController {
       user.id ?? user.firebaseUid,
     );
     return { data: members };
+  }
+
+  /**
+   * Get active group invite
+   * GET /api/chats/:chatId/invite
+   */
+  @Get(":chatId/invite")
+  async getActiveInvite(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("chatId") chatId: string,
+  ): Promise<{ data: ChatInviteDto | null }> {
+    const invite = await this.chatService.getActiveInvite(
+      chatId,
+      user.id ?? user.firebaseUid,
+    );
+    return { data: invite };
+  }
+
+  /**
+   * Create or regenerate group invite
+   * POST /api/chats/:chatId/invite
+   */
+  @Post(":chatId/invite")
+  async createInvite(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("chatId") chatId: string,
+  ): Promise<{ data: ChatInviteDto }> {
+    const invite = await this.chatService.createInvite(
+      chatId,
+      user.id ?? user.firebaseUid,
+    );
+    return { data: invite };
+  }
+
+  /**
+   * Revoke active group invite
+   * DELETE /api/chats/:chatId/invite
+   */
+  @Delete(":chatId/invite")
+  @HttpCode(204)
+  async revokeInvite(
+    @GetUser() user: AuthenticatedRequestUser,
+    @Param("chatId") chatId: string,
+  ): Promise<void> {
+    await this.chatService.revokeInvite(chatId, user.id ?? user.firebaseUid);
   }
 
   /**

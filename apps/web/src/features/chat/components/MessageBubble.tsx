@@ -126,7 +126,7 @@ export function MessageBubble({
           highlighted ? "rounded-2xl ring-2 ring-amber-300/80" : ""
         }`}
       >
-        <div className="inline-flex max-w-[min(88%,520px)] items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-center text-xs font-semibold text-slate-300 shadow-lg shadow-black/15">
+        <div className="inline-flex max-w-[85%] items-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-3 py-1.5 text-center text-[11px] font-semibold text-slate-300 shadow-lg shadow-black/15 md:max-w-[70%]">
           <svg
             aria-hidden="true"
             viewBox="0 0 24 24"
@@ -152,12 +152,12 @@ export function MessageBubble({
       <div
         className={[
           "group/message flex",
-          groupedWithPrevious ? "mb-1" : "mb-5 mt-1",
+          groupedWithPrevious ? "mb-1" : "mb-3 mt-1",
           isOwn ? "justify-end" : "justify-start",
         ].join(" ")}
       >
         <div
-          className={`flex max-w-[min(86%,560px)] gap-3 ${
+          className={`flex max-w-[85%] gap-3 md:max-w-[70%] ${
             isOwn ? "flex-row-reverse" : ""
           }`}
         >
@@ -185,7 +185,7 @@ export function MessageBubble({
               </span>
             ) : null}
             <div
-              className={`rounded-[22px] border border-dashed px-5 py-3 text-sm italic shadow-lg ${
+              className={`rounded-[20px] border border-dashed px-4 py-2.5 text-sm italic leading-6 shadow-lg ${
                 isOwn
                   ? "rounded-br-md border-emerald-200/30 bg-emerald-500/20 text-emerald-50/85"
                   : "rounded-bl-md border-white/10 bg-[#23262e]/70 text-slate-300"
@@ -194,7 +194,7 @@ export function MessageBubble({
               This message was deleted
             </div>
             {!groupedWithPrevious ? (
-              <span className="mt-2 flex items-center gap-1 px-1 text-[11px] text-slate-400">
+              <span className="mt-1.5 flex items-center gap-1 px-1 text-[11px] text-slate-500">
                 {time}
               </span>
             ) : null}
@@ -208,11 +208,11 @@ export function MessageBubble({
     <div
       className={[
         "group/message flex",
-        groupedWithPrevious ? "mb-1" : "mb-5 mt-1",
+        groupedWithPrevious ? "mb-1" : "mb-3 mt-1",
         isOwn ? "justify-end" : "justify-start",
       ].join(" ")}
     >
-      <div className={`flex max-w-[min(86%,760px)] gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+      <div className={`flex max-w-[85%] gap-3 md:max-w-[70%] ${isOwn ? "flex-row-reverse" : ""}`}>
         {!isOwn ? (
           <div className={`${groupedWithPrevious ? "invisible" : ""} mt-1 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-700 text-sm font-bold text-white ring-1 ring-white/10`}>
             {senderUser?.avatarUrl ? (
@@ -231,24 +231,24 @@ export function MessageBubble({
             </span>
           ) : null}
           <div
-            className={`break-words rounded-[22px] px-5 py-4 text-[15px] leading-7 shadow-lg ${
+            className={`break-words rounded-[20px] px-4 py-2.5 text-[15px] leading-6 shadow-lg ${
               isOwn
                 ? "rounded-br-md bg-emerald-500 text-white shadow-emerald-950/20"
                 : "rounded-bl-md border border-white/5 bg-[#23262e] text-white shadow-black/25"
             } ${highlighted ? "ring-2 ring-amber-300/80" : ""}`}
           >
             {message.replyTo ? (
-              <div className="mb-3 rounded-2xl border border-white/10 bg-black/15 px-3 py-2">
-                <p className="truncate text-xs font-bold text-emerald-100/90">
+              <div className="mb-2.5 rounded-xl border border-white/10 bg-black/15 px-3 py-2">
+                <p className="truncate text-[11px] font-bold uppercase tracking-wide text-emerald-100/90">
                   {replyToLabel ?? "Message"}
                 </p>
-                <p className="mt-1 truncate text-xs leading-5 text-white/70">
+                <p className="mt-1 truncate text-xs leading-5 text-white/65">
                   {quotePreview}
                 </p>
               </div>
             ) : null}
             {attachments.length > 0 && (
-              <div className="mb-3 space-y-2">
+              <div className="mb-2.5 space-y-2">
                 {attachments.map((attachment) => {
                   if (attachment.resourceType === "image") {
                     return (
@@ -333,7 +333,7 @@ export function MessageBubble({
             )}
           </div>
           {!groupedWithPrevious ? (
-            <span className="mt-2 flex items-center gap-1 px-1 text-[11px] text-slate-400">
+            <span className="mt-1.5 flex items-center gap-1 px-1 text-[11px] text-slate-500">
               {time}
               {message.editedAt ? <span>edited</span> : null}
               {isOwn ? <span className={tickColor}>{ticks}</span> : null}
@@ -342,7 +342,7 @@ export function MessageBubble({
 
           {reactions.length > 0 ? (
             <div
-              className={`mt-2 flex flex-wrap gap-1.5 ${
+              className={`mt-1.5 flex flex-wrap gap-1.5 ${
                 isOwn ? "justify-end" : "justify-start"
               }`}
             >
@@ -356,7 +356,7 @@ export function MessageBubble({
                   type="button"
                   disabled={reactionPending}
                   onClick={() => onReact?.(message.id, reaction.emoji)}
-                  className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs leading-none shadow-sm transition ${
+                  className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs leading-none shadow-sm transition ${
                     reactedByCurrentUser
                       ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100"
                       : "border-white/10 bg-[#20232b] text-slate-200 hover:border-white/20 hover:bg-[#2a2d36]"

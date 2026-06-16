@@ -69,8 +69,8 @@ export function MessageList({
   messageRefs,
 }: MessageListProps) {
   return (
-    <div className="relative flex flex-1 flex-col overflow-y-auto bg-[#101114]">
-      <div className="relative z-10 flex flex-1 flex-col px-4 py-6 sm:px-7 lg:px-9">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#101114]">
+      <div className="relative z-10 flex min-h-full flex-col px-4 py-5 sm:px-6 lg:px-7">
         {loading ? (
           <div className="mx-auto mt-10 rounded-full border border-white/10 bg-[#20232b] px-4 py-2 text-sm text-slate-400">
             Loading messages...
