@@ -47,6 +47,8 @@ See `apps/web/.env.example`:
 
 ## OneUptime monitors
 
+Public status page: `https://oneuptime.com/status-page/b4c2b9d6-5827-490c-8738-2f0c2f5bf711`
+
 - Frontend Website Monitor
   - URL: `https://whatsapp-web-cyan.vercel.app/`
   - Success: status code `200`
