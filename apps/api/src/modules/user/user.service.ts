@@ -83,18 +83,6 @@ export class UserService {
     return this.toUserDto(user);
   }
 
-  async findById(userId: string): Promise<UserDto> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      throw new NotFoundException("User not found");
-    }
-
-    return this.toUserDto(user);
-  }
-
   async findByPhone(phoneE164: string): Promise<UserDto> {
     const normalizedPhone = this.normalizePhone(phoneE164);
     const user = await this.prisma.user.findUnique({

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Patch, Query, UseGuards } from "@nestjs/common";
-import type { MeResponseDto, UpdateMeRequestDto, UserDto } from "@chat/shared";
+import type { UpdateMeRequestDto, UserDto } from "@chat/shared";
 import {
   FirebaseAuthGuard,
   type AuthenticatedRequestUser,
@@ -11,15 +11,6 @@ import { UserService } from "./user.service.js";
 @UseGuards(FirebaseAuthGuard)
 export class UserController {
   constructor(private readonly userService: UserService) {}
-
-  @Get("me")
-  async getMe(@GetUser() user: AuthenticatedRequestUser): Promise<MeResponseDto> {
-    if (!user.id) {
-      throw new Error("Authenticated user id is missing");
-    }
-
-    return { user: await this.userService.findById(user.id) };
-  }
 
   @Patch("me")
   async updateMe(
