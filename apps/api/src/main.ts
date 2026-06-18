@@ -3,6 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import type { NextFunction, Request, Response } from "express";
 import { IoAdapter } from "@nestjs/platform-socket.io";
 import { AppModule } from "./app.module.js";
+import { HealthService } from "./modules/health/health.service.js";
 
 function getAllowedOrigins() {
   const configuredOrigins =
@@ -22,6 +23,26 @@ function getAllowedOrigins() {
 
 const allowedOrigins = getAllowedOrigins();
 
+function sendHealthError(error: unknown, res: Response) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "getStatus" in error &&
+    "getResponse" in error &&
+    typeof error.getStatus === "function" &&
+    typeof error.getResponse === "function"
+  ) {
+    res.status(error.getStatus()).json(error.getResponse());
+    return;
+  }
+
+  res.status(503).json({
+    status: "error",
+    timestamp: new Date().toISOString(),
+    message: "Health check failed",
+  });
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     cors: {
@@ -40,6 +61,24 @@ async function bootstrap() {
 
   // Configure Socket.IO adapter
   app.useWebSocketAdapter(new IoAdapter(app));
+  const healthService = app.get(HealthService);
+  const expressApp = app.getHttpAdapter().getInstance();
+
+  expressApp.get("/health", (_req: Request, res: Response) => {
+    res.status(200).json(healthService.getApiHealth());
+  });
+
+  expressApp.get("/health/db", async (_req: Request, res: Response) => {
+    try {
+      res.status(200).json(await healthService.getDbHealth());
+    } catch (error) {
+      sendHealthError(error, res);
+    }
+  });
+
+  expressApp.get("/health/socket", (_req: Request, res: Response) => {
+    res.status(200).json(healthService.getSocketHealth());
+  });
 
   // Fallback for browsers that preflight before route matching.
   app.use((req: Request, res: Response, next: NextFunction) => {

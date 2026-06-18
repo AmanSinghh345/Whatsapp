@@ -45,3 +45,17 @@ See `apps/web/.env.example`:
 - `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
 - `NEXT_PUBLIC_FIREBASE_APP_ID`
 
+## OneUptime monitors
+
+- Frontend Website Monitor
+  - URL: `https://whatsapp-web-cyan.vercel.app/`
+  - Success: status code `200`
+- Backend API Monitor
+  - URL: `https://whatsapp-82ky.onrender.com/health`
+  - Success: status code `200`, body contains `ok`
+- Database API Monitor
+  - URL: `https://whatsapp-82ky.onrender.com/health/db`
+  - Success: status code `200`, body contains `connected`
+- Socket Server Monitor
+  - URL: `https://whatsapp-82ky.onrender.com/health/socket`
+  - Success: status code `200`, body contains `ok`
