@@ -4,10 +4,23 @@ import type { NextFunction, Request, Response } from "express";
 import { IoAdapter } from "@nestjs/platform-socket.io";
 import { AppModule } from "./app.module.js";
 
-const allowedOrigins = [
-  process.env.CORS_ORIGIN ?? "http://localhost:3000",
-  "http://127.0.0.1:3000",
-];
+function getAllowedOrigins() {
+  const configuredOrigins =
+    process.env.CORS_ORIGINS ?? process.env.CORS_ORIGIN ?? "";
+
+  return Array.from(
+    new Set([
+      ...configuredOrigins
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+    ]),
+  );
+}
+
+const allowedOrigins = getAllowedOrigins();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
