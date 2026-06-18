@@ -7,7 +7,7 @@ export async function fetchMe(idToken: string): Promise<MeResponseDto> {
     throw new Error("NEXT_PUBLIC_API_BASE_URL is not configured");
   }
 
-  const response = await fetch(`${API_BASE_URL}/me`, {
+  const response = await fetch(`${API_BASE_URL}/users/me`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${idToken}`
@@ -16,9 +16,8 @@ export async function fetchMe(idToken: string): Promise<MeResponseDto> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch /me: ${response.status}`);
+    throw new Error(`Failed to fetch /users/me: ${response.status}`);
   }
 
   return (await response.json()) as MeResponseDto;
 }
-

@@ -45,12 +45,12 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden bg-[#070b10] text-slate-100">
-      <div className="login-glow pointer-events-none absolute -left-24 top-10 h-72 w-72 rounded-full bg-emerald-500/15 blur-3xl" />
-      <div className="login-glow pointer-events-none absolute -right-24 bottom-0 h-80 w-80 rounded-full bg-cyan-500/10 blur-3xl" />
+    <main className="relative min-h-[100dvh] overflow-hidden bg-[#111216] text-slate-100">
+      <div className="login-glow pointer-events-none absolute -left-24 top-10 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
+      <div className="login-glow pointer-events-none absolute -right-24 bottom-0 h-80 w-80 rounded-full bg-slate-500/10 blur-3xl" />
 
       <div className="relative mx-auto grid min-h-[100dvh] w-full max-w-[1480px] grid-cols-1 gap-4 p-3 lg:grid-cols-[minmax(390px,0.78fr)_minmax(0,1.22fr)] lg:p-4">
-        <section className="flex min-h-0 items-center justify-center rounded-3xl border border-white/10 bg-[#11161e]/95 px-5 py-8 shadow-2xl shadow-black/30 sm:px-8 lg:px-10">
+        <section className="flex min-h-0 items-center justify-center rounded-3xl border border-white/10 bg-[#17191f]/95 px-5 py-8 shadow-2xl shadow-black/30 sm:px-8 lg:px-10">
           <div className="w-full max-w-md">
             <div className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-500/10 text-emerald-200 shadow-lg shadow-emerald-950/20">
               <svg
@@ -88,20 +88,20 @@ export default function LoginPage() {
               messages in one polished workspace.
             </p>
 
-            <div className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-[#0e141d] shadow-2xl shadow-black/25 lg:hidden">
+            <div className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-[#15171c] shadow-2xl shadow-black/25 lg:hidden">
               <img
-                src="/images/login-hero.png"
+                src="/images/login-hero-generated.png"
                 alt=""
                 className="h-48 w-full object-cover"
               />
             </div>
 
-            <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-black/25">
+            <div className="mt-8 rounded-3xl border border-white/10 bg-[#15171c] p-3 shadow-2xl shadow-black/25">
               <button
                 type="button"
                 onClick={handleGoogleLogin}
                 disabled={googleLoading}
-                className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl bg-white text-sm font-black text-[#11161e] shadow-lg shadow-black/20 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70"
+                className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl bg-slate-100 text-sm font-black text-[#111216] shadow-lg shadow-black/20 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
               >
                 <span className="flex h-6 w-6 items-center justify-center rounded-full border border-black/10 text-sm font-black">
                   G
@@ -123,7 +123,7 @@ export default function LoginPage() {
               >
                 Phone number
               </label>
-              <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#202630] px-4 py-3 transition focus-within:border-emerald-400/60 focus-within:bg-[#242b36]">
+              <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#20232b] px-4 py-3 transition focus-within:border-emerald-400/60 focus-within:bg-[#242832]">
                 <svg
                   viewBox="0 0 24 24"
                   className="h-5 w-5 shrink-0 text-emerald-300"
@@ -166,21 +166,21 @@ export default function LoginPage() {
           </div>
         </section>
 
-        <section className="relative hidden min-h-0 overflow-hidden rounded-3xl border border-white/10 bg-[#0e141d] shadow-2xl shadow-black/30 lg:block">
+        <section className="relative hidden min-h-0 overflow-hidden rounded-3xl border border-white/10 bg-[#15171c] shadow-2xl shadow-black/30 lg:block">
           <img
-            src="/images/login-hero.png"
+            src="/images/login-hero-generated.png"
             alt=""
             className="absolute inset-0 h-full w-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#070b10]/35 via-transparent to-[#070b10]/20" />
-          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[#070b10]/80 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#111216]/55 via-[#15171c]/20 to-[#111216]/45" />
+          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[#111216]/85 to-transparent" />
 
-          <div className="login-float absolute left-8 top-8 rounded-2xl border border-white/10 bg-[#101722]/80 px-4 py-3 shadow-2xl shadow-black/30 backdrop-blur">
+          <div className="login-float absolute left-8 top-8 rounded-2xl border border-white/10 bg-[#17191f]/85 px-4 py-3 shadow-2xl shadow-black/30 backdrop-blur">
             <p className="text-xs font-bold text-emerald-200">New message</p>
             <p className="mt-1 text-xs text-slate-400">Typing...</p>
           </div>
 
-          <div className="login-float-slow absolute bottom-8 left-8 max-w-sm rounded-3xl border border-white/10 bg-[#101722]/80 p-5 shadow-2xl shadow-black/30 backdrop-blur">
+          <div className="login-float-slow absolute bottom-8 left-8 max-w-sm rounded-3xl border border-white/10 bg-[#17191f]/85 p-5 shadow-2xl shadow-black/30 backdrop-blur">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">
               Live conversations
             </p>
