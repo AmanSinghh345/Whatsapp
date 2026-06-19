@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from "@nestjs/common";
+import { Controller, Get, NotFoundException, UseGuards } from "@nestjs/common";
 import { FirebaseAuthGuard } from "../auth/firebase-auth.guard.js";
 import type { AuthenticatedRequestUser } from "../auth/firebase-auth.guard.js";
 import { GetUser } from "../auth/get-user.decorator.js";
@@ -24,6 +24,19 @@ export class HealthController {
   @Get("socket")
   socket() {
     return this.healthService.getSocketHealth();
+  }
+
+  @Get("sentry-test")
+  sentryTest() {
+    const isDevelopment =
+      process.env.NODE_ENV === "development" ||
+      process.env.SENTRY_ENVIRONMENT === "development";
+
+    if (!isDevelopment) {
+      throw new NotFoundException();
+    }
+
+    throw new Error("Sentry backend test error");
   }
 
   /**

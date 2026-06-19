@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@chat/shared": "*",
+    "@sentry/nextjs": "^10.58.0",
     "firebase": "^11.9.0",
     "next": "^15.3.3",
     "react": "^19.1.0",

@@ -1,9 +1,12 @@
+import "./sentry.js";
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import type { NextFunction, Request, Response } from "express";
+import { HttpAdapterHost } from "@nestjs/core";
 import { IoAdapter } from "@nestjs/platform-socket.io";
 import { AppModule } from "./app.module.js";
 import { HealthService } from "./modules/health/health.service.js";
+import { SentryExceptionFilter } from "./sentry-exception.filter.js";
 
 function getAllowedOrigins() {
   const configuredOrigins =
@@ -58,6 +61,9 @@ async function bootstrap() {
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     },
   });
+
+  const { httpAdapter } = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new SentryExceptionFilter(httpAdapter));
 
   // Configure Socket.IO adapter
   app.useWebSocketAdapter(new IoAdapter(app));
