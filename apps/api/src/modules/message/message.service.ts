@@ -99,6 +99,26 @@ type TicTacToeGameData = {
 
 type GameData = RpsGameData | TicTacToeGameData;
 
+type MessageAttachmentForDto = {
+  id: string;
+  url: string;
+  cloudinaryPublicId: string;
+  resourceType: string;
+  mimeType: string;
+  bytes: number;
+  width: number | null;
+  height: number | null;
+};
+
+type MessageReplyForDto = {
+  id: string;
+  senderId: string;
+  chatId: string;
+  contentType: string;
+  textContent: string | null;
+  deletedAt: Date | null;
+};
+
 @Injectable()
 export class MessageService {
   private readonly logger = new Logger(MessageService.name);
@@ -127,7 +147,27 @@ export class MessageService {
       );
 
       const membershipStartedAt = Date.now();
-      await this.chatService.getChat(chatId, userId);
+      const chatMembers = await this.prisma.chatMember.findMany({
+        where: { chatId },
+        select: { userId: true },
+      });
+      const isMember = chatMembers.some((member) => member.userId === userId);
+
+      if (!isMember) {
+        const chat = await this.prisma.chat.findUnique({
+          where: { id: chatId },
+          select: { id: true },
+        });
+
+        if (!chat) {
+          throw new NotFoundException(`Chat ${chatId} not found`);
+        }
+
+        throw new ForbiddenException("You are not a member of this chat");
+      }
+      const recipientIds = chatMembers
+        .map((member) => member.userId)
+        .filter((memberUserId) => memberUserId !== userId);
       this.logMessageTiming("membership_check", {
         chatId,
         userId,
@@ -135,7 +175,7 @@ export class MessageService {
       });
 
       const replyStartedAt = Date.now();
-      await this.assertReplyTarget(chatId, replyToMessageId);
+      const replyTo = await this.assertReplyTarget(chatId, replyToMessageId);
       this.logMessageTiming("reply_target_check", {
         chatId,
         userId,
@@ -154,6 +194,8 @@ export class MessageService {
         );
       }
 
+      let attachmentsForDto: MessageAttachmentForDto[] = [];
+
       if (attachmentIds?.length) {
         const attachmentStartedAt = Date.now();
         const stagedAttachments = await this.prisma.messageAttachment.findMany({
@@ -161,7 +203,16 @@ export class MessageService {
             id: { in: attachmentIds },
             messageId: null,
           },
-          select: { id: true },
+          select: {
+            id: true,
+            url: true,
+            cloudinaryPublicId: true,
+            resourceType: true,
+            mimeType: true,
+            bytes: true,
+            width: true,
+            height: true,
+          },
         });
 
         this.logMessageTiming("attachment_processing", {
@@ -175,6 +226,21 @@ export class MessageService {
             "One or more attachments are missing or already used",
           );
         }
+
+        const attachmentsById = new Map(
+          stagedAttachments.map((attachment) => [attachment.id, attachment]),
+        );
+        attachmentsForDto = attachmentIds.map((attachmentId) => {
+          const attachment = attachmentsById.get(attachmentId);
+
+          if (!attachment) {
+            throw new BadRequestException(
+              "One or more attachments are missing or already used",
+            );
+          }
+
+          return attachment;
+        });
       }
 
       const idempotencyStartedAt = Date.now();
@@ -209,63 +275,73 @@ export class MessageService {
             ? { attachments: { connect: attachmentIds.map((id) => ({ id })) } }
             : {}),
         },
-        include: { attachments: true },
       });
       messageId = message.id;
+      const createdMessageId = message.id;
       this.logMessageTiming("message_create", {
         chatId,
         userId,
-        messageId,
+        messageId: createdMessageId,
         durationMs: Date.now() - createStartedAt,
       });
 
       const chatUpdateStartedAt = Date.now();
-      await this.prisma.chat.update({
-        where: { id: chatId },
-        data: { updatedAt: message.createdAt },
-      });
-      this.logMessageTiming("chat_update", {
-        chatId,
-        userId,
-        messageId,
-        durationMs: Date.now() - chatUpdateStartedAt,
-      });
+      const chatUpdatePromise = this.prisma.chat
+        .update({
+          where: { id: chatId },
+          data: { updatedAt: message.createdAt },
+        })
+        .finally(() => {
+          this.logMessageTiming("chat_update", {
+            chatId,
+            userId,
+            messageId: createdMessageId,
+            durationMs: Date.now() - chatUpdateStartedAt,
+          });
+        });
 
       const receiptStartedAt = Date.now();
-      const chatMembers = await this.prisma.chatMember.findMany({
-        where: { chatId, userId: { not: userId } },
-      });
+      const receiptCreationPromise =
+        recipientIds.length > 0
+          ? this.prisma.messageReceipt
+              .createMany({
+                data: recipientIds.map((recipientId) => ({
+                  messageId: message.id,
+                  recipientId,
+                })),
+                skipDuplicates: true,
+              })
+              .then(() => undefined)
+          : Promise.resolve();
 
-      if (chatMembers.length > 0) {
-        await this.prisma.messageReceipt.createMany({
-          data: chatMembers.map((member) => ({
-            messageId: message.id,
-            recipientId: member.userId,
-          })),
-          skipDuplicates: true,
-        });
-      }
-      this.logMessageTiming("receipt_creation", {
-        chatId,
-        userId,
-        messageId,
-        durationMs: Date.now() - receiptStartedAt,
-      });
+      await Promise.all([
+        chatUpdatePromise,
+        receiptCreationPromise.finally(() => {
+          this.logMessageTiming("receipt_creation", {
+            chatId,
+            userId,
+            messageId: createdMessageId,
+            durationMs: Date.now() - receiptStartedAt,
+          });
+        }),
+      ]);
 
       this.logger.log(
         `Message sent: ${message.id} to chat ${chatId} by user ${userId}`,
       );
 
       const serializationStartedAt = Date.now();
-      const messageWithReceipts = await this.prisma.message.findUnique({
-        where: { id: message.id },
-        include: MESSAGE_INCLUDE,
+      const dto = this.toMessageDto({
+        ...message,
+        attachments: attachmentsForDto,
+        receipts: recipientIds.map((recipientId) => ({ recipientId })),
+        reactions: [],
+        ...(replyTo ? { replyTo } : {}),
       });
-      const dto = this.toMessageDto(messageWithReceipts ?? message);
       this.logMessageTiming("response_prepare", {
         chatId,
         userId,
-        messageId,
+        messageId: createdMessageId,
         durationMs: Date.now() - serializationStartedAt,
       });
 
@@ -283,7 +359,7 @@ export class MessageService {
         this.logMessageTiming("socket_broadcast", {
           chatId,
           userId,
-          messageId,
+          messageId: createdMessageId,
           durationMs: Date.now() - broadcastStartedAt,
         });
       }
@@ -294,7 +370,7 @@ export class MessageService {
         this.logMessageTiming("gamebot_command", {
           chatId,
           userId,
-          messageId,
+          messageId: createdMessageId,
           durationMs: Date.now() - commandStartedAt,
         });
       }
@@ -805,14 +881,21 @@ export class MessageService {
   private async assertReplyTarget(
     chatId: string,
     replyToMessageId?: string,
-  ): Promise<void> {
+  ): Promise<MessageReplyForDto | undefined> {
     if (!replyToMessageId) {
-      return;
+      return undefined;
     }
 
     const replyTo = await this.prisma.message.findUnique({
       where: { id: replyToMessageId },
-      select: { id: true, chatId: true, contentType: true },
+      select: {
+        id: true,
+        senderId: true,
+        chatId: true,
+        contentType: true,
+        textContent: true,
+        deletedAt: true,
+      },
     });
 
     if (!replyTo || replyTo.chatId !== chatId) {
@@ -822,6 +905,8 @@ export class MessageService {
     if (replyTo.contentType === "system") {
       throw new BadRequestException("Cannot reply to system messages");
     }
+
+    return replyTo;
   }
 
   private assertUuid(value: string, fieldName: string): void {
