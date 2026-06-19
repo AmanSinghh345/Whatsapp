@@ -11,6 +11,7 @@ import {
   HttpCode,
   BadRequestException,
   ParseUUIDPipe,
+  Logger,
 } from "@nestjs/common";
 import {
   FirebaseAuthGuard,
@@ -32,6 +33,8 @@ import type {
 @Controller("messages")
 @UseGuards(FirebaseAuthGuard)
 export class MessageController {
+  private readonly logger = new Logger(MessageController.name);
+
   constructor(private readonly messageService: MessageService) {}
 
   /**
@@ -44,9 +47,14 @@ export class MessageController {
     @GetUser() user: AuthenticatedRequestUser,
     @Body() request: SendMessageRequestDto,
   ): Promise<{ data: MessageDto }> {
+    const startedAt = Date.now();
+    const userId = user.id ?? user.firebaseUid;
     const message = await this.messageService.sendMessage(
-      user.id ?? user.firebaseUid,
+      userId,
       request,
+    );
+    this.logger.log(
+      `[MessageTiming] step=controller_total chatId=${request.chatId} userId=${userId} messageId=${message.id} durationMs=${Date.now() - startedAt}`,
     );
     return { data: message };
   }

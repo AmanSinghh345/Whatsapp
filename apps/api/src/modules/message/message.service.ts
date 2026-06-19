@@ -114,117 +114,200 @@ export class MessageService {
     userId: string,
     request: SendMessageRequestDto,
   ): Promise<MessageDto> {
+    const totalStartedAt = Date.now();
+    let messageId: string | undefined;
     const { chatId, clientMessageId, contentType, text, attachmentIds, replyToMessageId } =
       request;
 
-    this.assertUuid(chatId, "chatId");
-    this.assertOptionalUuid(replyToMessageId, "replyToMessageId");
-    attachmentIds?.forEach((attachmentId) =>
-      this.assertUuid(attachmentId, "attachmentIds"),
-    );
-
-    await this.chatService.getChat(chatId, userId);
-    await this.assertReplyTarget(chatId, replyToMessageId);
-
-    if (contentType === "text" && !text?.trim()) {
-      throw new BadRequestException(
-        "Text content is required for text messages",
+    try {
+      this.assertUuid(chatId, "chatId");
+      this.assertOptionalUuid(replyToMessageId, "replyToMessageId");
+      attachmentIds?.forEach((attachmentId) =>
+        this.assertUuid(attachmentId, "attachmentIds"),
       );
-    }
 
-    if (contentType === "attachment" && !attachmentIds?.length) {
-      throw new BadRequestException(
-        "Attachment IDs are required for attachment messages",
-      );
-    }
-
-    if (attachmentIds?.length) {
-      const stagedAttachments = await this.prisma.messageAttachment.findMany({
-        where: {
-          id: { in: attachmentIds },
-          messageId: null,
-        },
-        select: { id: true },
+      const membershipStartedAt = Date.now();
+      await this.chatService.getChat(chatId, userId);
+      this.logMessageTiming("membership_check", {
+        chatId,
+        userId,
+        durationMs: Date.now() - membershipStartedAt,
       });
 
-      if (stagedAttachments.length !== attachmentIds.length) {
+      const replyStartedAt = Date.now();
+      await this.assertReplyTarget(chatId, replyToMessageId);
+      this.logMessageTiming("reply_target_check", {
+        chatId,
+        userId,
+        durationMs: Date.now() - replyStartedAt,
+      });
+
+      if (contentType === "text" && !text?.trim()) {
         throw new BadRequestException(
-          "One or more attachments are missing or already used",
+          "Text content is required for text messages",
         );
       }
-    }
 
-    const existingMessage = await this.prisma.message.findFirst({
-      where: { chatId, senderId: userId, clientMessageId },
-      include: MESSAGE_INCLUDE,
-    });
+      if (contentType === "attachment" && !attachmentIds?.length) {
+        throw new BadRequestException(
+          "Attachment IDs are required for attachment messages",
+        );
+      }
 
-    if (existingMessage) {
-      this.logger.debug(
-        `Message already exists (idempotent): chatId=${chatId}, clientMessageId=${clientMessageId}`,
-      );
-      return this.toMessageDto(existingMessage);
-    }
+      if (attachmentIds?.length) {
+        const attachmentStartedAt = Date.now();
+        const stagedAttachments = await this.prisma.messageAttachment.findMany({
+          where: {
+            id: { in: attachmentIds },
+            messageId: null,
+          },
+          select: { id: true },
+        });
 
-    const message = await this.prisma.message.create({
-      data: {
+        this.logMessageTiming("attachment_processing", {
+          chatId,
+          userId,
+          durationMs: Date.now() - attachmentStartedAt,
+        });
+
+        if (stagedAttachments.length !== attachmentIds.length) {
+          throw new BadRequestException(
+            "One or more attachments are missing or already used",
+          );
+        }
+      }
+
+      const idempotencyStartedAt = Date.now();
+      const existingMessage = await this.prisma.message.findFirst({
+        where: { chatId, senderId: userId, clientMessageId },
+        include: MESSAGE_INCLUDE,
+      });
+      this.logMessageTiming("idempotency_check", {
         chatId,
-        senderId: userId,
-        clientMessageId,
-        contentType,
-        textContent: text ?? null,
-        ...(replyToMessageId ? { replyToMessageId } : {}),
-        ...(attachmentIds?.length
-          ? { attachments: { connect: attachmentIds.map((id) => ({ id })) } }
-          : {}),
-      },
-      include: { attachments: true },
-    });
-    await this.prisma.chat.update({
-      where: { id: chatId },
-      data: { updatedAt: message.createdAt },
-    });
+        userId,
+        durationMs: Date.now() - idempotencyStartedAt,
+      });
 
-    const chatMembers = await this.prisma.chatMember.findMany({
-      where: { chatId, userId: { not: userId } },
-    });
+      if (existingMessage) {
+        messageId = existingMessage.id;
+        this.logger.debug(
+          `Message already exists (idempotent): chatId=${chatId}, clientMessageId=${clientMessageId}`,
+        );
+        return this.toMessageDto(existingMessage);
+      }
 
-    if (chatMembers.length > 0) {
-      await this.prisma.messageReceipt.createMany({
-        data: chatMembers.map((member) => ({
-          messageId: message.id,
-          recipientId: member.userId,
-        })),
-        skipDuplicates: true,
+      const createStartedAt = Date.now();
+      const message = await this.prisma.message.create({
+        data: {
+          chatId,
+          senderId: userId,
+          clientMessageId,
+          contentType,
+          textContent: text ?? null,
+          ...(replyToMessageId ? { replyToMessageId } : {}),
+          ...(attachmentIds?.length
+            ? { attachments: { connect: attachmentIds.map((id) => ({ id })) } }
+            : {}),
+        },
+        include: { attachments: true },
+      });
+      messageId = message.id;
+      this.logMessageTiming("message_create", {
+        chatId,
+        userId,
+        messageId,
+        durationMs: Date.now() - createStartedAt,
+      });
+
+      const chatUpdateStartedAt = Date.now();
+      await this.prisma.chat.update({
+        where: { id: chatId },
+        data: { updatedAt: message.createdAt },
+      });
+      this.logMessageTiming("chat_update", {
+        chatId,
+        userId,
+        messageId,
+        durationMs: Date.now() - chatUpdateStartedAt,
+      });
+
+      const receiptStartedAt = Date.now();
+      const chatMembers = await this.prisma.chatMember.findMany({
+        where: { chatId, userId: { not: userId } },
+      });
+
+      if (chatMembers.length > 0) {
+        await this.prisma.messageReceipt.createMany({
+          data: chatMembers.map((member) => ({
+            messageId: message.id,
+            recipientId: member.userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      this.logMessageTiming("receipt_creation", {
+        chatId,
+        userId,
+        messageId,
+        durationMs: Date.now() - receiptStartedAt,
+      });
+
+      this.logger.log(
+        `Message sent: ${message.id} to chat ${chatId} by user ${userId}`,
+      );
+
+      const serializationStartedAt = Date.now();
+      const messageWithReceipts = await this.prisma.message.findUnique({
+        where: { id: message.id },
+        include: MESSAGE_INCLUDE,
+      });
+      const dto = this.toMessageDto(messageWithReceipts ?? message);
+      this.logMessageTiming("response_prepare", {
+        chatId,
+        userId,
+        messageId,
+        durationMs: Date.now() - serializationStartedAt,
+      });
+
+      const broadcastStartedAt = Date.now();
+      try {
+        this.socketGateway.broadcastMessageToChat(
+          chatId,
+          SocketEvents.messageNew,
+          dto,
+        );
+        this.logger.debug(`Broadcast message:new to chat:${chatId}`);
+      } catch (e) {
+        this.logger.warn(`Socket broadcast failed (non-fatal): ${e}`);
+      } finally {
+        this.logMessageTiming("socket_broadcast", {
+          chatId,
+          userId,
+          messageId,
+          durationMs: Date.now() - broadcastStartedAt,
+        });
+      }
+
+      if (contentType === "text" && text?.trim().startsWith("/")) {
+        const commandStartedAt = Date.now();
+        await this.handleGameBotCommand(userId, chatId, text.trim());
+        this.logMessageTiming("gamebot_command", {
+          chatId,
+          userId,
+          messageId,
+          durationMs: Date.now() - commandStartedAt,
+        });
+      }
+
+      return dto;
+    } finally {
+      this.logMessageTiming("total", {
+        chatId,
+        userId,
+        ...(messageId ? { messageId } : {}),
+        durationMs: Date.now() - totalStartedAt,
       });
     }
-
-    this.logger.log(
-      `Message sent: ${message.id} to chat ${chatId} by user ${userId}`,
-    );
-
-    const messageWithReceipts = await this.prisma.message.findUnique({
-      where: { id: message.id },
-      include: MESSAGE_INCLUDE,
-    });
-    const dto = this.toMessageDto(messageWithReceipts ?? message);
-
-    try {
-      this.socketGateway.broadcastMessageToChat(
-        chatId,
-        SocketEvents.messageNew,
-        dto,
-      );
-      this.logger.debug(`Broadcast message:new to chat:${chatId}`);
-    } catch (e) {
-      this.logger.warn(`Socket broadcast failed (non-fatal): ${e}`);
-    }
-
-    if (contentType === "text" && text?.trim().startsWith("/")) {
-      await this.handleGameBotCommand(userId, chatId, text.trim());
-    }
-
-    return dto;
   }
 
   async playGameAction(
@@ -690,6 +773,27 @@ export class MessageService {
     this.assertUuid(chatId, "chatId");
 
     return this.prisma.message.count({ where: { chatId } });
+  }
+
+  private logMessageTiming(
+    step: string,
+    details: {
+      chatId: string;
+      userId: string;
+      durationMs: number;
+      messageId?: string;
+    },
+  ): void {
+    this.logger.log(
+      [
+        "[MessageTiming]",
+        `step=${step}`,
+        `chatId=${details.chatId}`,
+        `userId=${details.userId}`,
+        ...(details.messageId ? [`messageId=${details.messageId}`] : []),
+        `durationMs=${details.durationMs}`,
+      ].join(" "),
+    );
   }
 
   private assertOptionalUuid(value: string | undefined, fieldName: string): void {
