@@ -9,7 +9,10 @@ import {
   MessageBody,
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
-import { Logger } from "@nestjs/common";
+import { Logger, type OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { createClient } from "redis";
 import {
   SocketAuthGuard,
   type SocketAuthenticatedUser,
@@ -25,6 +28,8 @@ import type {
 import { PresenceService } from "./presence.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { WebRtcSignalDto } from "@chat/shared";
+
+type SocketRedisClient = Pick<ReturnType<typeof createClient>, "quit">;
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -57,12 +62,18 @@ interface AuthenticatedSocket extends Socket {
   allowUpgrades: true,
 })
 export class SocketGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleDestroy
 {
   @WebSocketServer()
   server!: Server;
 
   private readonly logger = new Logger(SocketGateway.name);
+  private socketPubClient?: SocketRedisClient;
+  private socketSubClient?: SocketRedisClient;
 
   // chatId -> DB userId -> timestamp
   private typingState = new Map<string, Map<string, number>>();
@@ -74,14 +85,16 @@ export class SocketGateway
     private readonly socketAuthGuard: SocketAuthGuard,
     private readonly presenceService: PresenceService,
     private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
   ) {}
 
   setMessageSocketService(service: any): void {
     this.messageSocketService = service;
   }
 
-  afterInit(): void {
+  async afterInit(): Promise<void> {
     this.logger.log("Socket.IO Gateway initialized");
+    await this.configureRedisAdapter();
 
     this.server.use(async (socket, next) => {
       try {
@@ -319,6 +332,13 @@ export class SocketGateway
     });
   }
 
+  async onModuleDestroy(): Promise<void> {
+    await Promise.allSettled([
+      this.socketPubClient?.quit(),
+      this.socketSubClient?.quit(),
+    ]);
+  }
+
   @SubscribeMessage("chat:join")
   handleChatJoin(
     @ConnectedSocket() socket: AuthenticatedSocket,
@@ -394,6 +414,57 @@ export class SocketGateway
   async isUserOnline(userId: string): Promise<boolean> {
     const [presence] = await this.presenceService.getPresence([userId]);
     return presence?.state === "online";
+  }
+
+  private async configureRedisAdapter(): Promise<void> {
+    const redisUrl = this.configService.get<string>("REDIS_URL");
+
+    if (!redisUrl) {
+      this.logger.warn(
+        "Socket.IO Redis adapter unavailable, using in-memory adapter: REDIS_URL is not configured",
+      );
+      return;
+    }
+
+    const pubClient = createClient({
+      url: redisUrl,
+      socket: {
+        connectTimeout: 1000,
+        reconnectStrategy: (retries) => {
+          if (retries > 5) {
+            return false;
+          }
+
+          return Math.min(retries * 200, 2000);
+        },
+      },
+    });
+    const subClient = pubClient.duplicate();
+
+    pubClient.on("error", (error) => {
+      this.logger.warn(`Socket.IO Redis adapter publisher error: ${error.message}`);
+    });
+    subClient.on("error", (error) => {
+      this.logger.warn(`Socket.IO Redis adapter subscriber error: ${error.message}`);
+    });
+
+    try {
+      await Promise.all([pubClient.connect(), subClient.connect()]);
+      this.server.adapter(createAdapter(pubClient, subClient));
+      this.socketPubClient = pubClient;
+      this.socketSubClient = subClient;
+      this.logger.log("Socket.IO Redis adapter enabled");
+    } catch (error) {
+      await Promise.allSettled([
+        pubClient.isOpen ? pubClient.quit() : undefined,
+        subClient.isOpen ? subClient.quit() : undefined,
+      ]);
+      this.logger.warn(
+        `Socket.IO Redis adapter unavailable, using in-memory adapter: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
   }
 
   private async emitPresenceToAudience(

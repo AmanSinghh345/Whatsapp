@@ -17,7 +17,8 @@ type PresenceAudience = {
 @Injectable()
 export class PresenceService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PresenceService.name);
-  private readonly redis: RedisClientType;
+  private readonly redis?: RedisClientType;
+  private readonly redisUrl: string | undefined;
   private redisReady = false;
   private readonly localPresence = new Map<string, Set<string>>();
 
@@ -25,34 +26,71 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
   ) {
+    this.redisUrl = this.configService.get<string>("REDIS_URL");
+
+    if (!this.redisUrl) {
+      this.logger.warn(
+        "Redis presence unavailable, using local fallback: REDIS_URL is not configured",
+      );
+      return;
+    }
+
     this.redis = createClient({
-      url: this.configService.get<string>("REDIS_URL") ?? "redis://localhost:6379",
+      url: this.redisUrl,
       socket: {
         connectTimeout: 1000,
-        reconnectStrategy: false,
+        reconnectStrategy: (retries) => {
+          if (retries > 5) {
+            return false;
+          }
+
+          return Math.min(retries * 200, 2000);
+        },
       },
     });
   }
 
   async onModuleInit(): Promise<void> {
+    if (!this.redis) {
+      return;
+    }
+
+    this.redis.on("ready", () => {
+      this.redisReady = true;
+      this.logger.log("Redis presence connected");
+    });
+
+    this.redis.on("reconnecting", () => {
+      this.redisReady = false;
+      this.logger.warn("Redis presence reconnecting");
+    });
+
+    this.redis.on("end", () => {
+      this.redisReady = false;
+      this.logger.warn("Redis presence unavailable, using local fallback");
+    });
+
     this.redis.on("error", (error) => {
-      this.logger.error(`Redis presence error: ${error.message}`);
+      this.redisReady = false;
+      this.logger.warn(
+        `Redis presence unavailable, using local fallback: ${error.message}`,
+      );
     });
 
     try {
       await this.redis.connect();
-      this.redisReady = true;
-      this.logger.log("Redis presence connection ready");
     } catch (error) {
       this.redisReady = false;
       this.logger.warn(
-        `Redis presence disabled: ${error instanceof Error ? error.message : error}`,
+        `Redis presence unavailable, using local fallback: ${
+          error instanceof Error ? error.message : error
+        }`,
       );
     }
   }
 
   async onModuleDestroy(): Promise<void> {
-    if (this.redis.isOpen) {
+    if (this.redis?.isOpen) {
       await this.redis.quit();
     }
   }
@@ -61,7 +99,7 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     socketId: string,
   ): Promise<{ becameOnline: boolean; payload: PresenceStatePayload }> {
-    if (!this.redisReady) {
+    if (!this.redisReady || !this.redis) {
       const sockets = this.localPresence.get(userId) ?? new Set<string>();
       const becameOnline = sockets.size === 0;
       sockets.add(socketId);
@@ -78,26 +116,32 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
     }
 
     const key = this.socketSetKey(userId);
-    const wasOnline = (await this.redis.sCard(key)) > 0;
 
-    await this.redis.sAdd(key, socketId);
-    await this.redis.sAdd("presence:online-users", userId);
+    try {
+      const wasOnline = (await this.redis.sCard(key)) > 0;
 
-    return {
-      becameOnline: !wasOnline,
-      payload: {
-        userId,
-        state: "online",
-        updatedAt: new Date().toISOString(),
-      },
-    };
+      await this.redis.sAdd(key, socketId);
+      await this.redis.sAdd("presence:online-users", userId);
+
+      return {
+        becameOnline: !wasOnline,
+        payload: {
+          userId,
+          state: "online",
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      this.useLocalFallback(error);
+      return this.markOnline(userId, socketId);
+    }
   }
 
   async markOffline(
     userId: string,
     socketId: string,
   ): Promise<{ becameOffline: boolean; payload: PresenceStatePayload }> {
-    if (!this.redisReady) {
+    if (!this.redisReady || !this.redis) {
       const sockets = this.localPresence.get(userId);
       sockets?.delete(socketId);
 
@@ -134,38 +178,43 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
 
     const key = this.socketSetKey(userId);
 
-    await this.redis.sRem(key, socketId);
+    try {
+      await this.redis.sRem(key, socketId);
 
-    const remainingSockets = await this.redis.sCard(key);
-    const lastSeenAt = new Date();
+      const remainingSockets = await this.redis.sCard(key);
+      const lastSeenAt = new Date();
 
-    if (remainingSockets > 0) {
+      if (remainingSockets > 0) {
+        return {
+          becameOffline: false,
+          payload: {
+            userId,
+            state: "online",
+            updatedAt: lastSeenAt.toISOString(),
+          },
+        };
+      }
+
+      await this.redis.del(key);
+      await this.redis.sRem("presence:online-users", userId);
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { lastSeenAt },
+      });
+
       return {
-        becameOffline: false,
+        becameOffline: true,
         payload: {
           userId,
-          state: "online",
+          state: "offline",
+          lastSeenAt: lastSeenAt.toISOString(),
           updatedAt: lastSeenAt.toISOString(),
         },
       };
+    } catch (error) {
+      this.useLocalFallback(error);
+      return this.markOffline(userId, socketId);
     }
-
-    await this.redis.del(key);
-    await this.redis.sRem("presence:online-users", userId);
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { lastSeenAt },
-    });
-
-    return {
-      becameOffline: true,
-      payload: {
-        userId,
-        state: "offline",
-        lastSeenAt: lastSeenAt.toISOString(),
-        updatedAt: lastSeenAt.toISOString(),
-      },
-    };
   }
 
   async getPresence(userIds: string[]): Promise<PresenceStatePayload[]> {
@@ -175,7 +224,7 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
       return [];
     }
 
-    if (!this.redisReady) {
+    if (!this.redisReady || !this.redis) {
       const users = await this.prisma.user.findMany({
         where: { id: { in: uniqueUserIds } },
         select: { id: true, lastSeenAt: true, updatedAt: true },
@@ -199,35 +248,41 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    const [onlineFlags, users] = await Promise.all([
-      Promise.all(
-        uniqueUserIds.map(async (userId) => ({
+    try {
+      const redis = this.redis;
+      const [onlineFlags, users] = await Promise.all([
+        Promise.all(
+          uniqueUserIds.map(async (userId) => ({
+            userId,
+            online: (await redis.sCard(this.socketSetKey(userId))) > 0,
+          })),
+        ),
+        this.prisma.user.findMany({
+          where: { id: { in: uniqueUserIds } },
+          select: { id: true, lastSeenAt: true, updatedAt: true },
+        }),
+      ]);
+
+      const usersById = new Map(users.map((user) => [user.id, user]));
+      const now = new Date().toISOString();
+
+      return onlineFlags.map(({ userId, online }) => {
+        const user = usersById.get(userId);
+        const lastSeenAt = user?.lastSeenAt?.toISOString();
+
+        return {
           userId,
-          online: (await this.redis.sCard(this.socketSetKey(userId))) > 0,
-        })),
-      ),
-      this.prisma.user.findMany({
-        where: { id: { in: uniqueUserIds } },
-        select: { id: true, lastSeenAt: true, updatedAt: true },
-      }),
-    ]);
-
-    const usersById = new Map(users.map((user) => [user.id, user]));
-    const now = new Date().toISOString();
-
-    return onlineFlags.map(({ userId, online }) => {
-      const user = usersById.get(userId);
-      const lastSeenAt = user?.lastSeenAt?.toISOString();
-
-      return {
-        userId,
-        state: online ? "online" : "offline",
-        ...(lastSeenAt ? { lastSeenAt } : {}),
-        updatedAt: online
-          ? now
-          : lastSeenAt ?? user?.updatedAt.toISOString() ?? now,
-      };
-    });
+          state: online ? "online" : "offline",
+          ...(lastSeenAt ? { lastSeenAt } : {}),
+          updatedAt: online
+            ? now
+            : lastSeenAt ?? user?.updatedAt.toISOString() ?? now,
+        };
+      });
+    } catch (error) {
+      this.useLocalFallback(error);
+      return this.getPresence(userIds);
+    }
   }
 
   async getAudienceForUser(userId: string): Promise<PresenceAudience> {
@@ -266,5 +321,14 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
 
   private socketSetKey(userId: string): string {
     return `presence:user:${userId}:sockets`;
+  }
+
+  private useLocalFallback(error: unknown): void {
+    this.redisReady = false;
+    this.logger.warn(
+      `Redis presence unavailable, using local fallback: ${
+        error instanceof Error ? error.message : error
+      }`,
+    );
   }
 }

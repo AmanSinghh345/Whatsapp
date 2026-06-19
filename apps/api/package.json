@@ -24,6 +24,7 @@
     "@prisma/client": "^6.9.0",
     "@sentry/nestjs": "^10.58.0",
     "@sentry/node": "^10.58.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "firebase-admin": "^13.1.0",
     "redis": "^4.7.1",
     "reflect-metadata": "^0.2.2",
