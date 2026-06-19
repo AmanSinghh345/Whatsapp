@@ -77,7 +77,9 @@ export function useLiveChatPreviews<TChat extends ChatDto>({
             message.chatId,
             message.id,
             message.chatId === selectedChatId ? "seen" : "delivered",
-          );
+          ).catch((error) => {
+            console.warn("[receipt] preview update failed:", error);
+          });
         }
 
         setChats((current) => {
@@ -145,6 +147,9 @@ export function useLiveChatPreviews<TChat extends ChatDto>({
         );
       };
 
+      socket.off("message:new", onMessage);
+      socket.off("message:edited", onMessageEdited);
+      socket.off("message:deleted", onMessageDeleted);
       socket.on("message:new", onMessage);
       socket.on("message:edited", onMessageEdited);
       socket.on("message:deleted", onMessageDeleted);

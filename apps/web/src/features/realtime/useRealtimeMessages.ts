@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { getSocket } from "./socket.client";
+import { getSocket, joinChatOnce } from "./socket.client";
 import type {
   MessageDeletedDto,
   MessageEditedDto,
@@ -46,6 +46,7 @@ export function useRealtimeMessages({
     if (!chatId) return;
 
     let active = true;
+    const activeChatId = chatId;
 
     async function setup() {
       try {
@@ -53,24 +54,29 @@ export function useRealtimeMessages({
         if (!active) return;
 
         const joinActiveChat = () => {
-          socket.emit("chat:join", { chatId });
+          void joinChatOnce(activeChatId);
         };
 
         joinActiveChat();
+        socket.off("connect", joinActiveChat);
         socket.on("connect", joinActiveChat);
 
         const handler = (payload: MessageDto | { message: MessageDto }) => {
           const msg = "message" in payload ? payload.message : payload;
-          if (msg.chatId !== chatId) return;
+          if (msg.chatId !== activeChatId) return;
 
           onMessageRef.current(msg);
           if (msg.senderId !== currentUserId) {
-            void upsertMessageReceipt(msg.chatId, msg.id, "seen");
+            void upsertMessageReceipt(msg.chatId, msg.id, "seen").catch(
+              (error) => {
+                console.warn("[receipt] seen update failed:", error);
+              },
+            );
           }
         };
 
         const receiptHandler = (payload: MessageReceiptUpdatedDto) => {
-          if (payload.chatId !== chatId) return;
+          if (payload.chatId !== activeChatId) return;
 
           if (payload.recipientId !== currentUserId) {
             onReceiptUpdateRef.current(payload);
@@ -78,21 +84,26 @@ export function useRealtimeMessages({
         };
 
         const editHandler = (payload: MessageEditedDto) => {
-          if (payload.chatId !== chatId) return;
+          if (payload.chatId !== activeChatId) return;
           onMessageEditedRef.current?.(payload.message);
         };
 
         const deleteHandler = (payload: MessageDeletedDto) => {
-          if (payload.chatId !== chatId) return;
+          if (payload.chatId !== activeChatId) return;
           onMessageDeletedRef.current?.(payload.message);
         };
 
         const reactionHandler = (payload: MessageReactionUpdatedDto) => {
           console.log("[reaction] event received", payload);
-          if (payload.chatId !== chatId) return;
+          if (payload.chatId !== activeChatId) return;
           onReactionUpdateRef.current(payload.messageId, payload.reactions);
         };
 
+        socket.off("message:new", handler);
+        socket.off("message:edited", editHandler);
+        socket.off("message:deleted", deleteHandler);
+        socket.off("message:receipt:updated", receiptHandler);
+        socket.off("message:reactionUpdated", reactionHandler);
         socket.on("message:new", handler);
         socket.on("message:edited", editHandler);
         socket.on("message:deleted", deleteHandler);

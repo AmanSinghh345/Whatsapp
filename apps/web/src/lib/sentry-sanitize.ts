@@ -130,17 +130,25 @@ export function sanitizeSentryEvent<T>(event: T): T {
   }
 
   delete mutableEvent.user;
-  mutableEvent.message = REDACTED;
+
+  if (typeof mutableEvent.message === "string") {
+    mutableEvent.message = sanitizeString(mutableEvent.message);
+  }
 
   if (mutableEvent.logentry) {
-    mutableEvent.logentry.message = REDACTED;
+    if (typeof mutableEvent.logentry.message === "string") {
+      mutableEvent.logentry.message = sanitizeString(mutableEvent.logentry.message);
+    }
     mutableEvent.logentry.params = undefined;
   }
 
   if (mutableEvent.exception?.values) {
     mutableEvent.exception.values = mutableEvent.exception.values.map((value) => ({
       ...value,
-      value: REDACTED,
+      value:
+        typeof value.value === "string"
+          ? sanitizeString(value.value)
+          : value.value,
     }));
   }
 
@@ -155,7 +163,10 @@ export function sanitizeSentryEvent<T>(event: T): T {
   if (mutableEvent.breadcrumbs) {
     mutableEvent.breadcrumbs = mutableEvent.breadcrumbs.map((breadcrumb) => ({
       ...breadcrumb,
-      message: REDACTED,
+      message:
+        typeof breadcrumb.message === "string"
+          ? sanitizeString(breadcrumb.message)
+          : breadcrumb.message,
       data: sanitizeValue(breadcrumb.data),
     }));
   }

@@ -17,10 +17,10 @@ export function useTyping(chatId: string | null, currentUserId: string) {
         });
         isTypingRef.current = isTyping;
       } catch (e) {
-        // non-fatal
+        console.warn("[typing] update failed:", e);
       }
     },
-    [chatId, currentUserId]
+    [chatId],
   );
 
   const onKeyStroke = useCallback(() => {

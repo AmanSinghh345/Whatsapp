@@ -15,18 +15,32 @@ type TypingStatePayload =
       updatedAt: string;
     };
 
-export function useGlobalTypingListener() {
-  const setTyping = useTypingStore((state) => state.setTyping);
-  const replaceTypingUsers = useTypingStore((state) => state.replaceTypingUsers);
+let typingListenerRefCount = 0;
+let typingListenerCleanup: (() => void) | undefined;
 
+export function useGlobalTypingListener() {
   useEffect(() => {
     let active = true;
-    let cleanup: (() => void) | undefined;
+    typingListenerRefCount += 1;
+
+    if (typingListenerCleanup) {
+      return () => {
+        typingListenerRefCount -= 1;
+
+        if (typingListenerRefCount <= 0) {
+          typingListenerCleanup?.();
+          typingListenerCleanup = undefined;
+          typingListenerRefCount = 0;
+        }
+      };
+    }
 
     void getSocket().then((socket) => {
       if (!active) return;
 
       const handler = (payload: TypingStatePayload) => {
+        const { replaceTypingUsers, setTyping } = useTypingStore.getState();
+
         if ("typingUserIds" in payload) {
           replaceTypingUsers(payload.chatId, payload.typingUserIds);
           return;
@@ -35,15 +49,22 @@ export function useGlobalTypingListener() {
         setTyping(payload.chatId, payload.userId, payload.isTyping);
       };
 
+      socket.off("typing:state", handler);
       socket.on("typing:state", handler);
-      cleanup = () => socket.off("typing:state", handler);
+      typingListenerCleanup = () => socket.off("typing:state", handler);
     });
 
     return () => {
       active = false;
-      cleanup?.();
+      typingListenerRefCount -= 1;
+
+      if (typingListenerRefCount <= 0) {
+        typingListenerCleanup?.();
+        typingListenerCleanup = undefined;
+        typingListenerRefCount = 0;
+      }
     };
-  }, [replaceTypingUsers, setTyping]);
+  }, []);
 }
 
 export function useTypingIndicator(

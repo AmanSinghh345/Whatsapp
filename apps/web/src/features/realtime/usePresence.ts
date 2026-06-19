@@ -40,6 +40,10 @@ export function usePresence(userIds: string[]) {
         }
       };
 
+      socket.off("connect", queryPresence);
+      socket.off("presence:state", onPresenceState);
+      socket.off("presence:online", onOnline);
+      socket.off("presence:offline", onOffline);
       socket.on("connect", queryPresence);
       socket.on("presence:state", onPresenceState);
       socket.on("presence:online", onOnline);

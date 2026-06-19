@@ -144,6 +144,8 @@ export function useBrowserNotifications({
         });
       };
 
+      socket.off("message:new", onMessage);
+      socket.off("call:created", onCallCreated);
       socket.on("message:new", onMessage);
       socket.on("call:created", onCallCreated);
 

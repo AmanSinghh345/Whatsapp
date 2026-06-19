@@ -600,6 +600,9 @@ export function useWebRtcCall({
         }
       };
 
+      socket.off("call:created", onCallCreated);
+      socket.off("call:signal", onCallSignal);
+      socket.off("call:state", onCallState);
       socket.on("call:created", onCallCreated);
       socket.on("call:signal", onCallSignal);
       socket.on("call:state", onCallState);

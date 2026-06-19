@@ -118,7 +118,13 @@ export function useMessages(chatId: string | null, currentUserId: string) {
           incomingMessages.map((message) =>
             upsertMessageReceipt(chatId, message.id, "seen"),
           ),
-        );
+        ).then((results) => {
+          results.forEach((result) => {
+            if (result.status === "rejected") {
+              console.warn("[receipt] initial seen update failed:", result.reason);
+            }
+          });
+        });
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);

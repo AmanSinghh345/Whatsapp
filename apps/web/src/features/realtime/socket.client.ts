@@ -7,7 +7,9 @@ const SOCKET_URL =
 declare global {
   interface Window {
     __socket?: Socket;
+    __socketCreatePromise?: Promise<Socket>;
     __socketConnectPromise?: Promise<Socket>;
+    __socketJoinedChatIds?: Set<string>;
   }
 }
 
@@ -18,6 +20,21 @@ function getExistingSocket(): Socket | null {
 
 function storeSocket(socket: Socket): void {
   if (typeof window !== "undefined") window.__socket = socket;
+}
+
+function getCreatePromise(): Promise<Socket> | undefined {
+  if (typeof window === "undefined") return undefined;
+  return window.__socketCreatePromise;
+}
+
+function storeCreatePromise(promise: Promise<Socket> | undefined): void {
+  if (typeof window === "undefined") return;
+
+  if (promise) {
+    window.__socketCreatePromise = promise;
+  } else {
+    delete window.__socketCreatePromise;
+  }
 }
 
 function getConnectPromise(): Promise<Socket> | undefined {
@@ -33,6 +50,31 @@ function storeConnectPromise(promise: Promise<Socket> | undefined): void {
   } else {
     delete window.__socketConnectPromise;
   }
+}
+
+function getJoinedChatIds(): Set<string> {
+  if (typeof window === "undefined") return new Set<string>();
+
+  window.__socketJoinedChatIds ??= new Set<string>();
+  return window.__socketJoinedChatIds;
+}
+
+function attachSocketDiagnostics(socket: Socket): void {
+  socket.on("connect", () => {
+    console.log("[socket] connected:", socket.id);
+
+    for (const chatId of getJoinedChatIds()) {
+      socket.emit("chat:join", { chatId });
+    }
+  });
+
+  socket.on("connect_error", (err) => {
+    console.warn("[socket] connect attempt failed:", err.message);
+  });
+
+  socket.on("disconnect", (reason) => {
+    console.log("[socket] disconnected:", reason);
+  });
 }
 
 function waitForConnect(socket: Socket): Promise<Socket> {
@@ -86,53 +128,83 @@ function waitForConnect(socket: Socket): Promise<Socket> {
 export async function getSocket(): Promise<Socket> {
   const existing = getExistingSocket();
   if (existing?.connected) {
-    console.log("[socket] reusing existing connection:", existing.id);
     return existing;
   }
 
   if (existing) {
-    console.log("[socket] reusing existing socket while connecting");
     if (!existing.active) {
+      const { getAuth } = await import("firebase/auth");
+      const token = await getAuth().currentUser?.getIdToken();
+      existing.auth = { token };
       existing.connect();
     }
     return waitForConnect(existing);
   }
 
+  const pendingCreate = getCreatePromise();
+  if (pendingCreate) {
+    return pendingCreate;
+  }
+
+  const createPromise = createSocket();
+  storeCreatePromise(createPromise);
+
+  try {
+    return await createPromise;
+  } finally {
+    storeCreatePromise(undefined);
+  }
+}
+
+async function createSocket(): Promise<Socket> {
   const { getAuth } = await import("firebase/auth");
   const token = await getAuth().currentUser?.getIdToken();
+
+  const existing = getExistingSocket();
+  if (existing) {
+    return existing.connected ? existing : waitForConnect(existing);
+  }
 
   console.log("[socket] connecting to", SOCKET_URL, "| has token:", !!token);
 
   const socket = io(SOCKET_URL, {
     auth: { token },
     transports: ["websocket"],
-    autoConnect: true,
+    autoConnect: false,
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 2000,
   });
 
   storeSocket(socket);
-
-  socket.on("connect", () => {
-    console.log("[socket] ✅ connected:", socket.id);
-  });
-
-  socket.on("connect_error", (err) => {
-    console.warn("[socket] connect attempt failed:", err.message);
-  });
-
-  socket.on("disconnect", (reason) => {
-    console.log("[socket] disconnected:", reason);
-  });
+  attachSocketDiagnostics(socket);
+  socket.connect();
 
   return waitForConnect(socket);
+}
+
+export async function joinChatOnce(chatId: string): Promise<void> {
+  if (!chatId) return;
+
+  const socket = await getSocket();
+  const joinedChatIds = getJoinedChatIds();
+
+  if (joinedChatIds.has(chatId)) {
+    return;
+  }
+
+  joinedChatIds.add(chatId);
+  socket.emit("chat:join", { chatId });
 }
 
 export function disconnectSocket() {
   const existing = getExistingSocket();
   existing?.removeAllListeners();
   existing?.disconnect();
+  storeCreatePromise(undefined);
   storeConnectPromise(undefined);
-  if (typeof window !== "undefined") delete window.__socket;
+  if (typeof window !== "undefined") {
+    delete window.__socket;
+    delete window.__socketJoinedChatIds;
+  }
 }

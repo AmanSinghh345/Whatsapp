@@ -29,7 +29,7 @@ import { MessageThread } from "../features/chat/components/MessageThread";
 import { useLiveChatPreviews } from "../features/chat/hooks/useLiveChatPreviews";
 import { usePresence } from "../features/realtime/usePresence";
 import { useBrowserNotifications } from "../features/realtime/useBrowserNotifications";
-import { getSocket } from "../features/realtime/socket.client";
+import { getSocket, joinChatOnce } from "../features/realtime/socket.client";
 import { useGlobalTypingListener } from "../features/realtime/useTypingIndicator";
 import { useTypingStore } from "../features/realtime/typing.store";
 import { useWebRtcCall } from "../features/realtime/useWebRtcCall";
@@ -1438,12 +1438,13 @@ export default function HomePage() {
 
       const joinAllChats = () => {
         for (const chatId of chatIds) {
-          socket.emit("chat:join", { chatId });
+          void joinChatOnce(chatId);
           joinedChatIdsRef.current.add(chatId);
         }
       };
 
       joinAllChats();
+      socket.off("connect", joinAllChats);
       socket.on("connect", joinAllChats);
       cleanupReconnectHandler = () => socket.off("connect", joinAllChats);
     });
