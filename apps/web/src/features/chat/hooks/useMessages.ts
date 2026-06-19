@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import * as Sentry from "@sentry/nextjs";
 import {
   fetchMessages,
   deleteMessage,
   editMessage,
   sendAttachmentMessage,
   sendMessage,
+  ApiRequestError,
   playGameAction,
   toggleMessageReaction,
   upsertMessageReceipt,
@@ -16,6 +18,21 @@ import {
   type MessageReactionSummaryDto,
 } from "../api/messages.api";
 import { uploadChatMedia } from "../api/media.api";
+
+type PendingTextSend = {
+  chatId: string;
+  text: string;
+  replyToMessageId?: string;
+  clientMessageId: string;
+};
+
+function createClientMessageId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `temp-${crypto.randomUUID()}`;
+  }
+
+  return `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export function useMessages(chatId: string | null, currentUserId: string) {
   const [messages, setMessages] = useState<MessageDto[]>([]);
@@ -30,6 +47,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const pendingReactionMessageIdsRef = useRef<Set<string>>(new Set());
+  const pendingTextSendsRef = useRef<Map<string, PendingTextSend>>(new Map());
 
   const getOptimisticReactions = useCallback(
     (
@@ -143,37 +161,172 @@ export function useMessages(chatId: string | null, currentUserId: string) {
   }, [messages]);
 
   const send = useCallback(
-    async (text: string) => {
-      if (!chatId || !text.trim()) return;
-      setSending(true);
+    async (
+      text: string,
+      options?: {
+        clientMessageId?: string;
+        retryMessage?: MessageDto;
+        retryMessageId?: string;
+      },
+    ) => {
+      const trimmedText = text.trim();
+      if (!chatId || !trimmedText) return;
+
       setError(null);
+      const clientMessageId = options?.clientMessageId ?? createClientMessageId();
+      const createdAt = new Date().toISOString();
+      const replyTo = options?.retryMessage
+        ? options.retryMessage.replyTo ?? null
+        : replyToMessage;
+      const replyToMessageId =
+        options?.retryMessage?.replyToMessageId ?? replyTo?.id;
+      const pendingSend: PendingTextSend = {
+        chatId,
+        text: trimmedText,
+        ...(replyToMessageId ? { replyToMessageId } : {}),
+        clientMessageId,
+      };
+
+      pendingTextSendsRef.current.set(clientMessageId, pendingSend);
+
+      const optimisticMessage: MessageDto = {
+        id: options?.retryMessageId ?? clientMessageId,
+        chatId,
+        senderId: currentUserId,
+        clientMessageId,
+        contentType: "text",
+        text: trimmedText,
+        receiptStatus: "sending",
+        ...(replyToMessageId ? { replyToMessageId } : {}),
+        ...(replyTo
+          ? {
+              replyTo: {
+                id: replyTo.id,
+                senderId: replyTo.senderId,
+                contentType: replyTo.contentType,
+                ...(replyTo.deletedAt ? { deletedAt: replyTo.deletedAt } : {}),
+                ...(!replyTo.deletedAt && replyTo.text
+                  ? { text: replyTo.text }
+                  : {}),
+              },
+            }
+          : {}),
+        attachments: [],
+        reactions: [],
+        receipts: [],
+        createdAt,
+        updatedAt: createdAt,
+      };
+
+      setMessages((prev) => {
+        if (prev.some((message) => message.clientMessageId === clientMessageId)) {
+          return prev.map((message) =>
+            message.clientMessageId === clientMessageId
+              ? { ...optimisticMessage, id: message.id }
+              : message,
+          );
+        }
+
+        return [...prev, optimisticMessage];
+      });
+      setReplyToMessage(null);
+
       try {
         const msg = await sendMessage(
           chatId,
-          text.trim(),
-          replyToMessage?.id,
+          trimmedText,
+          pendingSend.replyToMessageId,
+          clientMessageId,
         );
+        pendingTextSendsRef.current.delete(clientMessageId);
         setReplyToMessage(null);
-        // Dedup — socket broadcast may have already added this message
         setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, msg];
+          const existingIndex = prev.findIndex(
+            (message) =>
+              message.id === msg.id ||
+              message.clientMessageId === msg.clientMessageId,
+          );
+
+          if (existingIndex < 0) {
+            return [...prev, msg];
+          }
+
+          return prev.map((message, index) =>
+            index === existingIndex ? msg : message,
+          );
         });
       } catch (e: any) {
+        if (e instanceof ApiRequestError) {
+          Sentry.captureException(e, {
+            tags: {
+              endpoint: e.endpoint,
+            },
+            extra: {
+              status: e.status,
+              durationMs: e.durationMs,
+            },
+          });
+        } else {
+          Sentry.captureException(e, {
+            tags: {
+              endpoint: "/messages",
+            },
+          });
+        }
+
         setError(e.message);
-      } finally {
-        setSending(false);
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.clientMessageId === clientMessageId
+              ? { ...message, receiptStatus: "failed" }
+              : message,
+          ),
+        );
       }
     },
-    [chatId, replyToMessage?.id]
+    [chatId, currentUserId, replyToMessage],
   );
 
   const appendMessage = useCallback((msg: MessageDto) => {
     setMessages((prev) => {
-      if (prev.some((m) => m.id === msg.id)) return prev;
-      return [...prev, msg];
+      const existingIndex = prev.findIndex(
+        (message) =>
+          message.id === msg.id ||
+          message.clientMessageId === msg.clientMessageId,
+      );
+
+      if (existingIndex < 0) {
+        return [...prev, msg];
+      }
+
+      return prev.map((message, index) =>
+        index === existingIndex ? msg : message,
+      );
     });
   }, []);
+
+  const retryMessage = useCallback(
+    (message: MessageDto) => {
+      if (
+        message.receiptStatus !== "failed" ||
+        message.contentType !== "text" ||
+        !message.text?.trim()
+      ) {
+        return;
+      }
+
+      const pendingSend = pendingTextSendsRef.current.get(
+        message.clientMessageId,
+      );
+
+      void send(pendingSend?.text ?? message.text, {
+        clientMessageId: message.clientMessageId,
+        retryMessage: message,
+        retryMessageId: message.id,
+      });
+    },
+    [send],
+  );
 
   const updateMessage = useCallback((msg: MessageDto) => {
     setMessages((prev) =>
@@ -427,6 +580,7 @@ export function useMessages(chatId: string | null, currentUserId: string) {
     updateReceiptStatus,
     updateMessageReactions,
     reactToMessage,
+    retryMessage,
     playGame,
     edit,
     deleteMessage: remove,

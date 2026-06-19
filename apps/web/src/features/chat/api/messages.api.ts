@@ -3,6 +3,18 @@
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000/api";
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly endpoint: string,
+    public readonly durationMs: number,
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 async function getAuthHeaders(): Promise<HeadersInit> {
   const { getAuth } = await import("firebase/auth");
   const auth = getAuth();
@@ -81,7 +93,7 @@ export interface MessageDto {
     width?: number;
     height?: number;
   }[];
-  receiptStatus?: "sent" | "delivered" | "seen";
+  receiptStatus?: "sending" | "failed" | "sent" | "delivered" | "seen";
   receipts?: MessageReceiptDto[];
   reactions?: MessageReactionSummaryDto[];
   createdAt: string;
@@ -193,8 +205,11 @@ export async function sendMessage(
   chatId: string,
   text: string,
   replyToMessageId?: string,
+  clientMessageId = `${Date.now()}-${Math.random().toString(36).slice(2)}`,
 ): Promise<MessageDto> {
   const headers = await getAuthHeaders();
+  const endpoint = "/messages";
+  const startedAt = Date.now();
 
   const payload = {
     chatId,
@@ -202,15 +217,22 @@ export async function sendMessage(
     text,
     ...(replyToMessageId ? { replyToMessageId } : {}),
     // Idempotency key: unique per send attempt
-    clientMessageId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    clientMessageId,
   };
 
-  const res = await fetch(`${API_BASE}/messages`, {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
+  if (!res.ok) {
+    throw new ApiRequestError(
+      `Failed to send message: ${res.status}`,
+      res.status,
+      endpoint,
+      Date.now() - startedAt,
+    );
+  }
 
   const body = await res.json();
   // Backend returns { data: MessageDto }

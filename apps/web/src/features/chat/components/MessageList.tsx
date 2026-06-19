@@ -22,6 +22,7 @@ interface MessageListProps {
   onEdit?: (messageId: string, text: string) => void;
   onDelete?: (messageId: string) => void;
   onReply?: (message: MessageDto) => void;
+  onRetry?: (message: MessageDto) => void;
   onCopy?: (text: string) => void;
   onPreviewImage?: (image: {
     url: string;
@@ -118,6 +119,7 @@ export function MessageList({
   onEdit,
   onDelete,
   onReply,
+  onRetry,
   onCopy,
   onPreviewImage,
   onGameAction,
@@ -200,6 +202,7 @@ export function MessageList({
                   {...(onEdit ? { onEdit } : {})}
                   {...(onDelete ? { onDelete } : {})}
                   {...(onReply ? { onReply } : {})}
+                  {...(onRetry ? { onRetry } : {})}
                   {...(onCopy ? { onCopy } : {})}
                   {...(onPreviewImage ? { onPreviewImage } : {})}
                   {...(onGameAction ? { onGameAction } : {})}

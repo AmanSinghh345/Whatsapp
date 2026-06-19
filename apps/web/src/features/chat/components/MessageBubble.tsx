@@ -111,6 +111,7 @@ interface Props {
   onEdit?: (messageId: string, text: string) => void;
   onDelete?: (messageId: string) => void;
   onReply?: (message: MessageDto) => void;
+  onRetry?: (message: MessageDto) => void;
   onCopy?: (text: string) => void;
   onPreviewImage?: (image: {
     url: string;
@@ -143,6 +144,7 @@ export function MessageBubble({
   onEdit,
   onDelete,
   onReply,
+  onRetry,
   onCopy,
   onPreviewImage,
   onGameAction,
@@ -164,14 +166,26 @@ export function MessageBubble({
     minute: "2-digit",
   });
 
+  const localStatus = message.receiptStatus;
+  const isSending = localStatus === "sending";
+  const isFailed = localStatus === "failed";
   const ticks =
-    message.receiptStatus === "seen"
-      ? "✓✓"
-      : message.receiptStatus === "delivered"
-        ? "✓✓"
-        : "✓";
-  const tickColor =
-    message.receiptStatus === "seen" ? "text-sky-300" : "text-white/45";
+    isFailed
+      ? "!"
+      : isSending
+        ? "..."
+        : localStatus === "seen"
+          ? "✓✓"
+          : localStatus === "delivered"
+            ? "✓✓"
+            : "✓";
+  const tickColor = isFailed
+    ? "text-red-200"
+    : isSending
+      ? "text-white/35"
+      : localStatus === "seen"
+        ? "text-sky-300"
+        : "text-white/45";
   const attachments = message.attachments ?? [];
   const hasAttachments = attachments.length > 0;
   const avatarLabel = senderLabel?.slice(0, 1).toUpperCase() || "M";
@@ -181,20 +195,31 @@ export function MessageBubble({
   )?.emoji;
   const canEdit =
     isOwn &&
+    !isSending &&
+    !isFailed &&
     message.contentType === "text" &&
     !message.deletedAt &&
     Boolean(onEdit) &&
     !message.id.startsWith("demo-");
   const canDelete =
     isOwn &&
+    !isSending &&
+    !isFailed &&
     !message.deletedAt &&
     Boolean(onDelete) &&
     !message.id.startsWith("demo-");
   const canReply =
+    !isSending &&
+    !isFailed &&
     !message.deletedAt &&
     message.contentType !== "system" &&
     Boolean(onReply) &&
     !message.id.startsWith("demo-");
+  const canRetry =
+    isOwn &&
+    isFailed &&
+    message.contentType === "text" &&
+    Boolean(onRetry);
   const canCopy = Boolean(message.text?.trim()) && Boolean(onCopy);
   const quotePreview = message.replyTo?.deletedAt
     ? "This message was deleted"
@@ -277,7 +302,7 @@ export function MessageBubble({
   };
 
   const openContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!(canReply || canCopy || canEdit || canDelete)) {
+    if (!(canReply || canCopy || canEdit || canDelete || canRetry)) {
       return;
     }
 
@@ -861,12 +886,24 @@ export function MessageBubble({
                   isOwn ? "text-emerald-50/75" : "text-slate-400"
                 }`}
               >
-                {time}
+                {isFailed ? "Failed" : isSending ? "Sending" : time}
                 {message.editedAt ? <span>edited</span> : null}
                 {isOwn ? <span className={tickColor}>{ticks}</span> : null}
               </span>
             ) : null}
           </div>
+
+          {canRetry ? (
+            <div className="mt-1.5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => onRetry?.(message)}
+                className="rounded-full border border-red-300/25 bg-red-500/10 px-2.5 py-1 text-[11px] font-bold text-red-100 transition hover:bg-red-500/20"
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
 
           {reactions.length > 0 ? (
             <div
@@ -985,6 +1022,15 @@ export function MessageBubble({
               className="flex w-full rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-200 transition hover:bg-white/10"
             >
               Reply
+            </button>
+          ) : null}
+          {canRetry ? (
+            <button
+              type="button"
+              onClick={() => runMenuAction(() => onRetry?.(message))}
+              className="flex w-full rounded-xl px-3 py-2 text-left text-xs font-semibold text-red-100 transition hover:bg-red-500/10"
+            >
+              Retry send
             </button>
           ) : null}
           {canCopy ? (

@@ -11,6 +11,7 @@ interface MessageComposerProps {
   replyToLabel?: string | undefined;
   onCancelReply?: (() => void) | undefined;
   disabled?: boolean | undefined;
+  attachDisabled?: boolean | undefined;
   placeholder?: string | undefined;
 }
 
@@ -22,6 +23,7 @@ export function MessageComposer({
   replyToLabel,
   onCancelReply,
   disabled = false,
+  attachDisabled = disabled,
   placeholder = "Type a message...",
 }: MessageComposerProps) {
   const [value, setValue] = useState("");
@@ -56,7 +58,7 @@ export function MessageComposer({
   };
 
   const handleFileChange = (file: File | undefined) => {
-    if (!file || disabled) return;
+    if (!file || attachDisabled) return;
 
     onAttach?.(file);
     if (fileInputRef.current) {
@@ -109,7 +111,7 @@ export function MessageComposer({
           type="file"
           className="hidden"
           onChange={(event) => handleFileChange(event.target.files?.[0])}
-          disabled={disabled}
+          disabled={attachDisabled}
         />
 
         <button
@@ -117,7 +119,7 @@ export function MessageComposer({
           aria-label="Attach file"
           title="Attach file"
           onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
+          disabled={attachDisabled}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[#20232b] text-slate-400 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
         >
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">

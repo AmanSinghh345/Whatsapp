@@ -128,6 +128,7 @@ export function MessageThread({
     updateReceiptStatus,
     updateMessageReactions,
     reactToMessage,
+    retryMessage,
     playGame,
     edit,
     deleteMessage,
@@ -237,6 +238,7 @@ export function MessageThread({
         onEdit={edit}
         onDelete={deleteMessage}
         onReply={setReplyToMessage}
+        onRetry={retryMessage}
         onCopy={handleCopyMessage}
         onPreviewImage={setPreviewImage}
         onGameAction={playGame}
@@ -268,7 +270,8 @@ export function MessageThread({
         replyTo={replyToMessage}
         replyToLabel={replyToLabel}
         onCancelReply={clearReplyToMessage}
-        disabled={sending}
+        disabled={false}
+        attachDisabled={sending}
       />
     </div>
   );
